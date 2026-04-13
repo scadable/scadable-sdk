@@ -20,6 +20,12 @@ Usage:
         @on.message("emergency_stop")
         def handle_stop(self, message): ...
 
+        @on.device(LineSensor, DISCONNECTED)
+        def sensor_lost(self): ...
+
+        @on.device(LineSensor, CONNECTED)
+        def sensor_back(self): ...
+
         @on.startup
         def boot(self): ...
 
@@ -29,6 +35,15 @@ Usage:
 
 from __future__ import annotations
 from typing import Any, Callable
+
+
+# Device status constants — used with @on.device(Device, STATUS)
+CONNECTED    = 0   # device is responding normally
+DISCONNECTED = 1   # device missed heartbeat × health_timeout
+TIMEOUT      = 2   # device responded but slower than expected
+DEGRADED     = 3   # device returning partial/corrupt data
+ERROR        = 4   # device returned an error code
+UPDATING     = 5   # device is being OTA-updated (temporarily unavailable)
 
 
 def _tag(func: Callable, trigger_type: str, **kwargs: Any) -> Callable:
@@ -69,6 +84,18 @@ class _OnNamespace:
     def message(topic: str) -> Callable:
         def decorator(func: Callable) -> Callable:
             return _tag(func, "message", topic=topic)
+        return decorator
+
+    @staticmethod
+    def device(device_class: Any, status: int) -> Callable:
+        """Trigger when a device's connection status changes.
+
+        Usage:
+            @on.device(LineSensor, DISCONNECTED)
+            def sensor_lost(self): ...
+        """
+        def decorator(func: Callable) -> Callable:
+            return _tag(func, "device", device=device_class, status=status)
         return decorator
 
     @staticmethod

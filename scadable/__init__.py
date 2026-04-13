@@ -8,7 +8,7 @@ from .core import Device, Controller
 from .registers import Register, Characteristic, Pin, Field
 from .protocols import modbus_tcp, modbus_rtu, ble, gpio, serial, i2c, rtsp
 from .time import every, SECONDS, MINUTES, HOURS, MILLISECONDS
-from .triggers import on
+from .triggers import on, CONNECTED, DISCONNECTED, TIMEOUT, DEGRADED, ERROR, UPDATING
 from .storage import data, files, state
 from .control import PID, StateMachine, State
 from .models import Model, ONNXModel
@@ -29,6 +29,8 @@ __all__ = [
     "every", "SECONDS", "MINUTES", "HOURS", "MILLISECONDS",
     # Triggers
     "on",
+    # Device status constants
+    "CONNECTED", "DISCONNECTED", "TIMEOUT", "DEGRADED", "ERROR", "UPDATING",
     # Storage
     "data", "files", "state",
     # Control
