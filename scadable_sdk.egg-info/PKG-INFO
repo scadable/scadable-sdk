@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: scadable-sdk
+Version: 0.1.0
+Summary: Scadable Edge SDK — write device logic in Python, compile to native
+License: Apache-2.0
+Requires-Python: >=3.10
+License-File: LICENSE
+Requires-Dist: typer[all]>=0.12
+Requires-Dist: jinja2>=3.0
+Requires-Dist: toml>=0.10
+Requires-Dist: rich>=13.0
+Dynamic: license-file
