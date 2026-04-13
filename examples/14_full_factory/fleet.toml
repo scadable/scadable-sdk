@@ -1,0 +1,51 @@
+# Fleet configuration — which gateways run what.
+#
+# Each gateway entry maps a physical gateway (by ID) to the
+# devices and controllers it should run. The build service
+# compiles a firmware bundle per gateway based on this file.
+
+[[gateway]]
+id = "gw-floor-1"
+name = "Floor 1 Gateway"
+target = "linux-arm64"          # Raspberry Pi 4
+
+devices = [
+    "devices/line_sensor.py",
+    "devices/motor_drive.py",
+    "devices/env_sensor.py",
+    "devices/factory_camera.py",
+]
+
+controllers = [
+    "controllers/production_monitor.py",
+    "controllers/motor_controller.py",
+    "controllers/safety_manager.py",
+    "controllers/lifecycle.py",
+]
+
+# Environment variables (injected at deploy time)
+[gateway.env]
+SENSOR_HOST = "192.168.1.50"
+VFD_HOST = "192.168.1.51"
+ENV_MAC = "AA:BB:CC:DD:EE:FF"
+CAMERA_URL = "rtsp://192.168.1.100/stream"
+S3_BUCKET = "acme-factory-data"
+SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/xxx"
+
+
+[[gateway]]
+id = "gw-floor-2"
+name = "Floor 2 Gateway"
+target = "esp32"                # ESP32 DevKit
+
+devices = [
+    "devices/line_sensor.py",   # Modbus only, no BLE/camera on ESP32
+]
+
+controllers = [
+    "controllers/production_monitor.py",
+    "controllers/lifecycle.py",
+]
+
+[gateway.env]
+SENSOR_HOST = "192.168.2.50"
