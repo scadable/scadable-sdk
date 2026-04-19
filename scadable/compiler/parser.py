@@ -332,15 +332,25 @@ def _parse_device_class(cls: ast.ClassDef, source_path: Path) -> dict | None:
 
 def parse_devices(
     files: list[Path],
-) -> tuple[list[dict], dict[str, str]]:
-    """Parse all device files and return (devices, class_name_to_id_map)."""
+) -> tuple[list[dict], dict[str, str], list[str]]:
+    """Parse all device files and return (devices, class_name_to_id_map, warnings).
+
+    SyntaxError on a device file no longer silently skips — the file
+    name + the first error line is captured as a warning, returned to
+    the caller, and surfaced on the CLI. Silent skips were the #1
+    "why isn't my device showing up" support question.
+    """
     devices: list[dict] = []
     class_map: dict[str, str] = {}  # ClassName → device_id
+    warnings: list[str] = []
 
     for fpath in files:
         try:
             tree = ast.parse(fpath.read_text(), filename=str(fpath))
-        except SyntaxError:
+        except SyntaxError as e:
+            warnings.append(
+                f"skipped device file {fpath} — SyntaxError on line {e.lineno}: {e.msg}"
+            )
             continue
 
         for node in ast.walk(tree):
@@ -350,7 +360,7 @@ def parse_devices(
                     devices.append(dev)
                     class_map[dev["class_name"]] = dev["id"]
 
-    return devices, class_map
+    return devices, class_map, warnings
 
 
 # ── Controller / trigger parsing ─────────────────────────────────
@@ -555,15 +565,23 @@ def _parse_controller_class(
 def parse_controllers(
     files: list[Path],
     class_map: dict[str, str],
-) -> list[dict]:
-    """Parse all controller files and return a list of controller dicts."""
+) -> tuple[list[dict], list[str]]:
+    """Parse all controller files. Returns (controllers, warnings).
+
+    SyntaxError on a controller file no longer silently skips — see
+    parse_devices() for the rationale.
+    """
     controllers: list[dict] = []
+    warnings: list[str] = []
 
     for fpath in files:
         try:
             text = fpath.read_text()
             tree = ast.parse(text, filename=str(fpath))
-        except SyntaxError:
+        except SyntaxError as e:
+            warnings.append(
+                f"skipped controller file {fpath} — SyntaxError on line {e.lineno}: {e.msg}"
+            )
             continue
 
         source_lines = text.splitlines()
@@ -574,4 +592,4 @@ def parse_controllers(
                 if ctrl:
                     controllers.append(ctrl)
 
-    return controllers
+    return controllers, warnings

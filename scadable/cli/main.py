@@ -40,6 +40,17 @@ def verify(
 
 
 @app.command()
+def compile(
+    target: str = typer.Option("linux", help="Target platform: linux, esp32"),
+    output: str = typer.Option("out", help="Output directory"),
+    verbose: bool = typer.Option(False, "-v", help="Verbose output"),
+):
+    """Compile device definitions into gateway-deployable artifacts."""
+    from .compile_cmd import run_compile
+    run_compile(target=target, output=output, verbose=verbose)
+
+
+@app.command()
 def version():
     """Show SDK version."""
     from scadable import __version__

@@ -57,9 +57,10 @@ def compile_project(
     # 1. Discover
     project = discover_project(project_root)
 
-    # 2. Parse
-    devices, class_map = parse_devices(project.device_files)
-    controllers = parse_controllers(project.controller_files, class_map)
+    # 2. Parse — parsers also surface SyntaxError-skipped files as warnings
+    #    so the user knows why a file didn't show up.
+    devices, class_map, device_warnings = parse_devices(project.device_files)
+    controllers, controller_warnings = parse_controllers(project.controller_files, class_map)
 
     result.devices = devices
     result.controllers = controllers
@@ -67,7 +68,7 @@ def compile_project(
     # 3. Validate
     errors, warnings = validate(devices, controllers, class_map)
     result.errors = errors
-    result.warnings = warnings
+    result.warnings = device_warnings + controller_warnings + warnings
 
     if errors:
         return result
