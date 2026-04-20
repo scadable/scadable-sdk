@@ -2,18 +2,35 @@
 
 from __future__ import annotations
 
+from .._targets import TARGETS, get_target
+
 
 def validate(
     devices: list[dict],
     controllers: list[dict],
     class_map: dict[str, str],
+    target: str = "linux",
 ) -> tuple[list[str], list[str]]:
     """Validate cross-references between devices and controllers.
+
+    Also runs target-capability checks: protocol supported on this
+    target? dtype supported? Catches "you wrote dtype=float64 but
+    your target is RTOS which only supports uint16" at compile time
+    instead of at first deploy. See `scadable/_targets.py` for the
+    capability matrix.
 
     Returns (errors, warnings).
     """
     errors: list[str] = []
     warnings: list[str] = []
+
+    # Look up target spec once. Unknown target → loud error, no warnings.
+    if target not in TARGETS:
+        errors.append(
+            f"unknown target {target!r}. Known: {', '.join(sorted(TARGETS))}"
+        )
+        return errors, warnings
+    spec = get_target(target)
 
     # Build a set of all device_id.register_name pairs
     field_index: set[str] = set()
@@ -37,18 +54,42 @@ def validate(
                 seen_addresses[addr] = name
             field_index.add(f"{did}.{name}")
 
+            # Target capability check: dtype
+            dtype = reg.get("dtype")
+            if dtype and dtype not in spec["dtypes"]:
+                errors.append(
+                    f"Device '{did}': register '{name}' uses dtype={dtype!r} "
+                    f"which target {target!r} doesn't support "
+                    f"(allowed: {sorted(spec['dtypes'])})"
+                )
+
         # Check connection params
         conn = dev.get("connection")
         if conn is None:
             errors.append(f"Device '{did}': no connection defined")
         else:
             _validate_connection(did, conn, errors, warnings)
+            # Target capability check: protocol
+            protocol = conn.get("protocol")
+            if protocol and protocol not in spec["protocols"]:
+                errors.append(
+                    f"Device '{did}': protocol {protocol!r} is not supported "
+                    f"on target {target!r} "
+                    f"(allowed: {sorted(spec['protocols'])})"
+                )
 
     # Validate controller triggers
     for ctrl in controllers:
         for trigger in ctrl.get("triggers", []):
             _validate_trigger(ctrl["id"], trigger, device_ids, field_index,
                               errors, warnings)
+
+    # Surface preview-status as a warning so users know they're early.
+    if spec["status"] != "production":
+        warnings.append(
+            f"target {target!r} is in preview ({spec['status']}). "
+            f"DSL accepted; runtime support not yet shipped."
+        )
 
     return errors, warnings
 

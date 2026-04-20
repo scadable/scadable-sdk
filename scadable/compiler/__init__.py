@@ -65,8 +65,8 @@ def compile_project(
     result.devices = devices
     result.controllers = controllers
 
-    # 3. Validate
-    errors, warnings = validate(devices, controllers, class_map)
+    # 3. Validate (target-aware — flags protocol/dtype mismatches)
+    errors, warnings = validate(devices, controllers, class_map, target=target)
     result.errors = errors
     result.warnings = device_warnings + controller_warnings + warnings
 
@@ -77,14 +77,14 @@ def compile_project(
     mem = estimate_memory(devices, controllers, target)
     result.memory = asdict(mem)
 
-    # 5. Emit artifacts
+    # 5. Emit artifacts (per-target — esp32/rtos raise TargetNotImplementedError)
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
     manifest_path = emit_manifest(project, devices, controllers, mem, target, out)
-    emit_driver_configs(devices, out)
-    bundle_path = emit_bundle(out)
+    emit_driver_configs(devices, out, target=target)
+    bundle_path = emit_bundle(out, target=target)
 
     result.manifest_path = manifest_path
     result.bundle_path = bundle_path
