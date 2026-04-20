@@ -90,9 +90,10 @@ Checks syntax, structure, register validity, and controller references. Add `--t
 
 ## Next Steps
 
-- [Generators Reference](generators.md) — all `scadable add` commands
+- [DSL Reference](dsl-reference.md) — every public symbol
+- [CLI Reference](cli.md) — every command and flag
 - [Modbus TCP Guide](modbus-tcp.md) — registers, addressing, scaling
-- [Controller Triggers](triggers.md) — all `@on.*` decorators
-- [Storage](storage.md) — local data, files, and state
-- [ML Inference](ml-inference.md) — ONNX models at the edge
-- See `examples/` for 14 progressive examples
+- [Protocols](protocols.md) — what's runtime-supported in v0.2.0
+- [Targets](targets.md) — capability matrix per platform
+- [Error Catalog](error-catalog.md) — every compile error explained
+- See `examples/` for 14 progressive examples (each with its own README)

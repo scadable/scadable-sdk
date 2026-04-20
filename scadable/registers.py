@@ -12,6 +12,24 @@ Device metaclass creates these descriptors from the registers list.
 
 from __future__ import annotations
 
+# Modbus + similar register data types. The compiler emits this into
+# the YAML so the gateway driver knows how many words to read and how
+# to decode them. uint16 is the safe default — every Modbus register
+# is at minimum 1 word (16 bits) wide.
+DTYPES: tuple[str, ...] = (
+    "uint16", "int16",
+    "uint32", "int32",
+    "float32", "float64",
+    "bool",
+)
+
+# Read-failure policy. Drives the gateway driver's behavior when a
+# register read errors (timeout, CRC fail, exception code).
+#   skip       — drop this sample silently; the next tick tries again
+#   last_known — emit the previous successful value tagged quality="stale"
+#   fail       — propagate as an alert and skip the sample
+ON_ERROR_POLICIES: tuple[str, ...] = ("skip", "last_known", "fail")
+
 
 class Register:
     """Modbus register — address determines read/write capability.
@@ -20,16 +38,47 @@ class Register:
     40000-49999 = holding registers (read/write unless writable=False)
     00001-09999 = coils (read/write, boolean)
     10000-19999 = discrete inputs (read-only, boolean)
+
+    `dtype` (default "uint16") tells the driver how many words to read
+    and how to decode them. A 32-bit value (uint32, int32, float32)
+    occupies 2 consecutive registers starting at `address`. Use
+    `endianness` to pick byte order if your device isn't big-endian.
+
+    `on_error` (default "skip") picks the read-failure policy:
+        skip       — drop this sample, try again next tick
+        last_known — emit the previous successful value as `quality="stale"`
+        fail       — surface as an alert and skip the sample
     """
 
     def __init__(self, address: int, name: str, *,
                  unit: str = "", scale: float = 1.0,
-                 writable: bool | None = None, store: bool = True):
+                 writable: bool | None = None, store: bool = True,
+                 dtype: str = "uint16",
+                 endianness: str = "big",
+                 on_error: str = "skip"):
+        if dtype not in DTYPES:
+            raise ValueError(
+                f"Register {name!r}: dtype={dtype!r} is not one of "
+                f"{', '.join(DTYPES)}"
+            )
+        if endianness not in ("big", "little"):
+            raise ValueError(
+                f"Register {name!r}: endianness={endianness!r} must be "
+                f"'big' or 'little'"
+            )
+        if on_error not in ON_ERROR_POLICIES:
+            raise ValueError(
+                f"Register {name!r}: on_error={on_error!r} is not one of "
+                f"{', '.join(ON_ERROR_POLICIES)}"
+            )
         self.address = address
         self.name = name
         self.unit = unit
         self.scale = scale
         self.store = store
+        self.dtype = dtype
+        self.endianness = endianness
+        self.on_error = on_error
         self._value: float = 0.0
 
         # Auto-detect writable from address range if not explicit
