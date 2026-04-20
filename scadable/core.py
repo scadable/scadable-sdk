@@ -122,8 +122,24 @@ class Controller:
         super().__init_subclass__(**kwargs)
         _registry.register_controller(cls)
 
-    def publish(self, topic: str, data: dict) -> None:
-        """Publish structured data via MQTT → NATS → cloud."""
+    # Quality flag values for self.publish(). Industrial-standard data
+    # quality tagging — downstream dashboards can color-code or filter.
+    QUALITY_GOOD: str = "good"
+    QUALITY_STALE: str = "stale"
+    QUALITY_BAD: str = "bad"
+
+    def publish(self, topic: str, data: dict, *, quality: str = "good") -> None:
+        """Publish structured data via MQTT → NATS → cloud.
+
+        `quality` rides through the pipeline as a label so downstream
+        consumers can filter ("only show good data") or color-code
+        (red badge on stale readings). Defaults to "good".
+        Accepts: "good" | "stale" | "bad".
+        """
+        if quality not in ("good", "stale", "bad"):
+            raise ValueError(
+                f"publish: quality={quality!r} must be 'good', 'stale', or 'bad'"
+            )
         pass  # implemented by gateway runtime
 
     def upload(self, route: str, blob: bytes, *,

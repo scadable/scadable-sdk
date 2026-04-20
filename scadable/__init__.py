@@ -6,6 +6,7 @@ Usage:
 
 from .core import Device, Controller
 from .registers import Register, Characteristic, Pin, Field
+from .topics import Topics
 from .protocols import modbus_tcp, modbus_rtu, ble, gpio, serial, i2c, rtsp
 from .time import every, SECONDS, MINUTES, HOURS, MILLISECONDS
 from .triggers import on, CONNECTED, DISCONNECTED, TIMEOUT, DEGRADED, ERROR, UPDATING
@@ -20,7 +21,7 @@ __version__ = "0.2.0"
 
 __all__ = [
     # Core
-    "Device", "Controller",
+    "Device", "Controller", "Topics",
     # Registers
     "Register", "Characteristic", "Pin", "Field",
     # Protocols

@@ -111,6 +111,8 @@ def _device_to_dict(dev: dict) -> dict[str, Any]:
             item["type"] = reg["type"]
         if reg.get("dtype"):
             item["dtype"] = reg["dtype"]
+        if reg.get("endianness") and reg["endianness"] != "big":
+            item["endianness"] = reg["endianness"]
         if reg.get("on_error"):
             item["on_error"] = reg["on_error"]
         if reg.get("mode"):
