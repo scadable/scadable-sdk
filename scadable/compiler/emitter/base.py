@@ -25,10 +25,10 @@ class Emitter(ABC):
 
     def emit_manifest(
         self,
-        project: "ProjectFiles",
+        project: ProjectFiles,
         devices: list[dict],
         controllers: list[dict],
-        memory: "MemoryEstimate",
+        memory: MemoryEstimate,
         target: str,
         output_dir: Path,
     ) -> Path:

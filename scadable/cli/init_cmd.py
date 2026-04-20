@@ -1,15 +1,14 @@
 """scadable init — create a new project."""
 
-import os
 from pathlib import Path
+
 import typer
 from rich import print as rprint
 
-
 STORAGE_DEFAULTS = {
-    "linux": '256MB',
-    "esp32": '2MB',
-    "rtos": '64KB',
+    "linux": "256MB",
+    "esp32": "2MB",
+    "rtos": "64KB",
 }
 
 FLEET_TARGETS = {
@@ -77,13 +76,13 @@ from scadable import upload_route, notify
 ''')
 
     rprint(f"[green]Created {name}/[/green]")
-    rprint(f"  [dim]├── devices/[/dim]")
-    rprint(f"  [dim]├── controllers/[/dim]")
-    rprint(f"  [dim]├── models/[/dim]")
-    rprint(f"  [dim]├── storage.py[/dim]")
-    rprint(f"  [dim]├── routes.py[/dim]")
-    rprint(f"  [dim]├── fleet.toml[/dim]")
-    rprint(f"  [dim]└── scadable.toml[/dim]")
+    rprint("  [dim]├── devices/[/dim]")
+    rprint("  [dim]├── controllers/[/dim]")
+    rprint("  [dim]├── models/[/dim]")
+    rprint("  [dim]├── storage.py[/dim]")
+    rprint("  [dim]├── routes.py[/dim]")
+    rprint("  [dim]├── fleet.toml[/dim]")
+    rprint("  [dim]└── scadable.toml[/dim]")
     rprint()
     rprint(f"Next: [bold]cd {name}[/bold]")
-    rprint(f"      [bold]scadable add device modbus-tcp my-sensor[/bold]")
+    rprint("      [bold]scadable add device modbus-tcp my-sensor[/bold]")

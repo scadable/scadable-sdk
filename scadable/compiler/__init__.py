@@ -5,24 +5,29 @@ Entry point: compile_project(project_root, target, output_dir, verbose)
 
 from __future__ import annotations
 
-import json
 import shutil
 from dataclasses import asdict
 from pathlib import Path
 
 from .discover import discover_project
-from .parser import parse_devices, parse_controllers
-from .validator import validate
+from .emitter import emit_bundle, emit_driver_configs, emit_manifest
 from .memory import estimate_memory
-from .emitter import emit_manifest, emit_driver_configs, emit_bundle
+from .parser import parse_controllers, parse_devices
+from .validator import validate
 
 
 class CompileResult:
     """Holds the full compilation output for CLI display."""
 
     __slots__ = (
-        "devices", "controllers", "memory", "errors", "warnings",
-        "output_dir", "manifest_path", "bundle_path",
+        "devices",
+        "controllers",
+        "memory",
+        "errors",
+        "warnings",
+        "output_dir",
+        "manifest_path",
+        "bundle_path",
     )
 
     def __init__(self) -> None:

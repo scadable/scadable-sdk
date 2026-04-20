@@ -4,23 +4,21 @@ from __future__ import annotations
 
 import json
 import tarfile
-from pathlib import Path
 
 import pytest
 import yaml
 
+from scadable._targets import TargetNotImplementedError
+from scadable.compiler import compile_project
+from scadable.compiler.discover import ProjectFiles
 from scadable.compiler.emitter import (
     EMITTERS,
-    LinuxEmitter,
     Esp32Emitter,
+    LinuxEmitter,
     RtosEmitter,
     emit_driver_configs,
 )
-from scadable.compiler.discover import ProjectFiles
 from scadable.compiler.memory import MemoryEstimate
-from scadable._targets import TargetNotImplementedError
-from scadable.compiler import compile_project
-
 
 # ── registry ─────────────────────────────────────────────────────
 
@@ -32,7 +30,7 @@ def test_emitter_registry_has_three_targets():
 def test_emitter_classes_match_targets():
     assert isinstance(EMITTERS["linux"], LinuxEmitter)
     assert isinstance(EMITTERS["esp32"], Esp32Emitter)
-    assert isinstance(EMITTERS["rtos"],  RtosEmitter)
+    assert isinstance(EMITTERS["rtos"], RtosEmitter)
 
 
 def test_esp32_emitter_raises_target_not_implemented(tmp_path):
@@ -56,13 +54,22 @@ def test_unknown_target_at_dispatch_raises(tmp_path):
 
 
 SAMPLE_DEVICE = {
-    "id": "temp-1", "name": "Temp",
+    "id": "temp-1",
+    "name": "Temp",
     "connection": {"protocol": "modbus_tcp", "host": "1.2.3.4", "port": 502},
     "poll_ms": 5000,
     "registers": [
-        {"address": 40001, "name": "t", "type": "holding",
-         "dtype": "float32", "endianness": "little",
-         "on_error": "last_known", "unit": "°C", "scale": 0.1, "writable": True},
+        {
+            "address": 40001,
+            "name": "t",
+            "type": "holding",
+            "dtype": "float32",
+            "endianness": "little",
+            "on_error": "last_known",
+            "unit": "°C",
+            "scale": 0.1,
+            "writable": True,
+        },
     ],
 }
 
@@ -99,11 +106,21 @@ def test_linux_yaml_unicode_unit_preserved(tmp_path):
 def test_linux_yaml_endianness_only_when_non_default(tmp_path):
     dev = dict(SAMPLE_DEVICE)
     dev["registers"] = [
-        {"address": 40001, "name": "x", "dtype": "uint16",
-         "endianness": "big", "on_error": "skip", "writable": True},
+        {
+            "address": 40001,
+            "name": "x",
+            "dtype": "uint16",
+            "endianness": "big",
+            "on_error": "skip",
+            "writable": True,
+        },
     ]
     LinuxEmitter().emit_driver_configs([dev], tmp_path)
-    body = yaml.safe_load((tmp_path / "drivers" / "x.yaml" if False else (tmp_path / "drivers" / "temp-1.yaml")).read_text())
+    body = yaml.safe_load(
+        (
+            tmp_path / "drivers" / "x.yaml" if False else (tmp_path / "drivers" / "temp-1.yaml")
+        ).read_text()
+    )
     # Big endian is default — must NOT appear in YAML to keep it clean
     assert "endianness" not in body["registers"][0]
 
@@ -120,12 +137,22 @@ def test_linux_yaml_endianness_emitted_when_little(tmp_path):
 
 def test_manifest_schema(tmp_path):
     project = ProjectFiles(
-        root=tmp_path, name="test", version="0.1.0",
-        device_files=[], controller_files=[], model_files=[],
+        root=tmp_path,
+        name="test",
+        version="0.1.0",
+        device_files=[],
+        controller_files=[],
+        model_files=[],
     )
-    mem = MemoryEstimate(runtime_kb=0, devices_kb=0, registers_kb=0,
-                          controllers_kb=0, total_kb=0,
-                          ram_limit_kb=0, target="linux")
+    mem = MemoryEstimate(
+        runtime_kb=0,
+        devices_kb=0,
+        registers_kb=0,
+        controllers_kb=0,
+        total_kb=0,
+        ram_limit_kb=0,
+        target="linux",
+    )
     LinuxEmitter().emit_manifest(project, [SAMPLE_DEVICE], [], mem, "linux", tmp_path)
 
     body = json.loads((tmp_path / "manifest.json").read_text())
@@ -138,15 +165,25 @@ def test_manifest_schema(tmp_path):
 
 def test_manifest_strips_internal_keys(tmp_path):
     project = ProjectFiles(
-        root=tmp_path, name="t", version="0.1.0",
-        device_files=[], controller_files=[], model_files=[],
+        root=tmp_path,
+        name="t",
+        version="0.1.0",
+        device_files=[],
+        controller_files=[],
+        model_files=[],
     )
     dev_with_internals = dict(SAMPLE_DEVICE)
     dev_with_internals["class_name"] = "Temp"
     dev_with_internals["source_file"] = "/some/path/temp.py"
-    mem = MemoryEstimate(runtime_kb=0, devices_kb=0, registers_kb=0,
-                          controllers_kb=0, total_kb=0,
-                          ram_limit_kb=0, target="linux")
+    mem = MemoryEstimate(
+        runtime_kb=0,
+        devices_kb=0,
+        registers_kb=0,
+        controllers_kb=0,
+        total_kb=0,
+        ram_limit_kb=0,
+        target="linux",
+    )
     LinuxEmitter().emit_manifest(project, [dev_with_internals], [], mem, "linux", tmp_path)
     body = json.loads((tmp_path / "manifest.json").read_text())
     assert "class_name" not in body["devices"][0]

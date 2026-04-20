@@ -24,8 +24,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .base import Emitter
-from .linux import LinuxEmitter
 from .esp32 import Esp32Emitter
+from .linux import LinuxEmitter
 from .rtos import RtosEmitter
 
 if TYPE_CHECKING:
@@ -37,15 +37,13 @@ if TYPE_CHECKING:
 EMITTERS: dict[str, Emitter] = {
     "linux": LinuxEmitter(),
     "esp32": Esp32Emitter(),
-    "rtos":  RtosEmitter(),
+    "rtos": RtosEmitter(),
 }
 
 
 def _select(target: str) -> Emitter:
     if target not in EMITTERS:
-        raise ValueError(
-            f"unknown target {target!r}. Known: {', '.join(sorted(EMITTERS))}"
-        )
+        raise ValueError(f"unknown target {target!r}. Known: {', '.join(sorted(EMITTERS))}")
     return EMITTERS[target]
 
 
@@ -53,16 +51,21 @@ def _select(target: str) -> Emitter:
 
 
 def emit_manifest(
-    project: "ProjectFiles",
+    project: ProjectFiles,
     devices: list[dict],
     controllers: list[dict],
-    memory: "MemoryEstimate",
+    memory: MemoryEstimate,
     target: str,
     output_dir: Path,
 ) -> Path:
     """Emit manifest.json — same JSON shape on every target."""
     return _select(target).emit_manifest(
-        project, devices, controllers, memory, target, output_dir,
+        project,
+        devices,
+        controllers,
+        memory,
+        target,
+        output_dir,
     )
 
 
@@ -78,7 +81,11 @@ def emit_bundle(output_dir: Path, target: str = "linux") -> Path:
 
 __all__ = [
     "Emitter",
-    "LinuxEmitter", "Esp32Emitter", "RtosEmitter",
+    "LinuxEmitter",
+    "Esp32Emitter",
+    "RtosEmitter",
     "EMITTERS",
-    "emit_manifest", "emit_driver_configs", "emit_bundle",
+    "emit_manifest",
+    "emit_driver_configs",
+    "emit_bundle",
 ]

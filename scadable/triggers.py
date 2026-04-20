@@ -34,16 +34,17 @@ Usage:
 """
 
 from __future__ import annotations
-from typing import Any, Callable
 
+from collections.abc import Callable
+from typing import Any
 
 # Device status constants — used with @on.device(Device, STATUS)
-CONNECTED    = 0   # device is responding normally
-DISCONNECTED = 1   # device missed heartbeat × health_timeout
-TIMEOUT      = 2   # device responded but slower than expected
-DEGRADED     = 3   # device returning partial/corrupt data
-ERROR        = 4   # device returned an error code
-UPDATING     = 5   # device is being OTA-updated (temporarily unavailable)
+CONNECTED = 0  # device is responding normally
+DISCONNECTED = 1  # device missed heartbeat × health_timeout
+TIMEOUT = 2  # device responded but slower than expected
+DEGRADED = 3  # device returning partial/corrupt data
+ERROR = 4  # device returned an error code
+UPDATING = 5  # device is being OTA-updated (temporarily unavailable)
 
 
 def _tag(func: Callable, trigger_type: str, **kwargs: Any) -> Callable:
@@ -59,31 +60,37 @@ class _OnNamespace:
     def interval(value: int, unit: str = "s") -> Callable:
         def decorator(func: Callable) -> Callable:
             return _tag(func, "interval", value=value, unit=unit)
+
         return decorator
 
     @staticmethod
     def data(device_or_field: Any) -> Callable:
         def decorator(func: Callable) -> Callable:
             return _tag(func, "data", source=device_or_field)
+
         return decorator
 
     @staticmethod
     def change(field: Any, *, delta: float = 0) -> Callable:
         def decorator(func: Callable) -> Callable:
             return _tag(func, "change", field=field, delta=delta)
+
         return decorator
 
     @staticmethod
-    def threshold(field: Any, *, above: float | None = None,
-                  below: float | None = None) -> Callable:
+    def threshold(
+        field: Any, *, above: float | None = None, below: float | None = None
+    ) -> Callable:
         def decorator(func: Callable) -> Callable:
             return _tag(func, "threshold", field=field, above=above, below=below)
+
         return decorator
 
     @staticmethod
     def message(topic: str) -> Callable:
         def decorator(func: Callable) -> Callable:
             return _tag(func, "message", topic=topic)
+
         return decorator
 
     @staticmethod
@@ -94,8 +101,10 @@ class _OnNamespace:
             @on.device(LineSensor, DISCONNECTED)
             def sensor_lost(self): ...
         """
+
         def decorator(func: Callable) -> Callable:
             return _tag(func, "device", device=device_class, status=status)
+
         return decorator
 
     @staticmethod

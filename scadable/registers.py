@@ -17,9 +17,12 @@ from __future__ import annotations
 # to decode them. uint16 is the safe default — every Modbus register
 # is at minimum 1 word (16 bits) wide.
 DTYPES: tuple[str, ...] = (
-    "uint16", "int16",
-    "uint32", "int32",
-    "float32", "float64",
+    "uint16",
+    "int16",
+    "uint32",
+    "int32",
+    "float32",
+    "float64",
     "bool",
 )
 
@@ -50,21 +53,26 @@ class Register:
         fail       — surface as an alert and skip the sample
     """
 
-    def __init__(self, address: int, name: str, *,
-                 unit: str = "", scale: float = 1.0,
-                 writable: bool | None = None, store: bool = True,
-                 dtype: str = "uint16",
-                 endianness: str = "big",
-                 on_error: str = "skip"):
+    def __init__(
+        self,
+        address: int,
+        name: str,
+        *,
+        unit: str = "",
+        scale: float = 1.0,
+        writable: bool | None = None,
+        store: bool = True,
+        dtype: str = "uint16",
+        endianness: str = "big",
+        on_error: str = "skip",
+    ):
         if dtype not in DTYPES:
             raise ValueError(
-                f"Register {name!r}: dtype={dtype!r} is not one of "
-                f"{', '.join(DTYPES)}"
+                f"Register {name!r}: dtype={dtype!r} is not one of {', '.join(DTYPES)}"
             )
         if endianness not in ("big", "little"):
             raise ValueError(
-                f"Register {name!r}: endianness={endianness!r} must be "
-                f"'big' or 'little'"
+                f"Register {name!r}: endianness={endianness!r} must be 'big' or 'little'"
             )
         if on_error not in ON_ERROR_POLICIES:
             raise ValueError(
@@ -99,9 +107,7 @@ class Register:
 
     def __set__(self, obj: object, value: float) -> None:
         if not self.writable:
-            raise AttributeError(
-                f"Register '{self.name}' (address {self.address}) is read-only"
-            )
+            raise AttributeError(f"Register '{self.name}' (address {self.address}) is read-only")
         self._value = value
 
     def __repr__(self) -> str:
@@ -112,8 +118,9 @@ class Register:
 class Characteristic:
     """BLE GATT characteristic — identified by UUID string."""
 
-    def __init__(self, uuid: str, name: str, *,
-                 unit: str = "", scale: float = 1.0, store: bool = True):
+    def __init__(
+        self, uuid: str, name: str, *, unit: str = "", scale: float = 1.0, store: bool = True
+    ):
         self.uuid = uuid
         self.name = name
         self.unit = unit
@@ -137,9 +144,17 @@ class Characteristic:
 class Pin:
     """GPIO pin definition."""
 
-    def __init__(self, pin: int, name: str, *,
-                 mode: str = "input", trigger: str | None = None,
-                 unit: str = "", scale: float = 1.0, store: bool = True):
+    def __init__(
+        self,
+        pin: int,
+        name: str,
+        *,
+        mode: str = "input",
+        trigger: str | None = None,
+        unit: str = "",
+        scale: float = 1.0,
+        store: bool = True,
+    ):
         self.pin = pin
         self.name = name
         self.mode = mode
@@ -170,8 +185,16 @@ class Pin:
 class Field:
     """Serial/custom protocol field — byte offset + length."""
 
-    def __init__(self, offset: int, length: int, name: str = "", *,
-                 unit: str = "", scale: float = 1.0, store: bool = True):
+    def __init__(
+        self,
+        offset: int,
+        length: int,
+        name: str = "",
+        *,
+        unit: str = "",
+        scale: float = 1.0,
+        store: bool = True,
+    ):
         self.offset = offset
         self.length = length
         self.name = name

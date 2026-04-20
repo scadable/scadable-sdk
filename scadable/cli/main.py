@@ -16,6 +16,7 @@ def init(
 ):
     """Create a new Scadable project."""
     from .init_cmd import run_init
+
     run_init(target, name)
 
 
@@ -27,6 +28,7 @@ def add(
 ):
     """Add a device, controller, or model to the project."""
     from .add_cmd import run_add
+
     run_add(kind, protocol_or_name, name)
 
 
@@ -36,6 +38,7 @@ def verify(
 ):
     """Validate the current project."""
     from .verify_cmd import run_verify
+
     run_verify(target)
 
 
@@ -47,6 +50,7 @@ def compile(
 ):
     """Compile device definitions into gateway-deployable artifacts."""
     from .compile_cmd import run_compile
+
     run_compile(target=target, output=output, verbose=verbose)
 
 
@@ -54,6 +58,7 @@ def compile(
 def version():
     """Show SDK version."""
     from scadable import __version__
+
     typer.echo(f"scadable-sdk {__version__}")
 
 

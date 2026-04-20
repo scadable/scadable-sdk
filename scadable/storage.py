@@ -7,6 +7,7 @@ Three storage types:
 """
 
 from __future__ import annotations
+
 from typing import Any
 
 
@@ -17,12 +18,24 @@ class DataStore:
         self.max_size = max_size
 
     def write(self, key: str, value: float) -> None: ...
-    def read(self, key: str, *, last: int = 1) -> list[float]: return []
-    def avg(self, key: str, *, window: str = "1h") -> float: return 0.0
-    def max(self, key: str, *, window: str = "24h") -> float: return 0.0
-    def min(self, key: str, *, window: str = "24h") -> float: return 0.0
-    def trend(self, key: str, *, window: str = "30m") -> float: return 0.0
-    def count(self, key: str, *, window: str = "1h") -> int: return 0
+    def read(self, key: str, *, last: int = 1) -> list[float]:
+        return []
+
+    def avg(self, key: str, *, window: str = "1h") -> float:
+        return 0.0
+
+    def max(self, key: str, *, window: str = "24h") -> float:
+        return 0.0
+
+    def min(self, key: str, *, window: str = "24h") -> float:
+        return 0.0
+
+    def trend(self, key: str, *, window: str = "30m") -> float:
+        return 0.0
+
+    def count(self, key: str, *, window: str = "1h") -> int:
+        return 0
+
     def flush(self) -> None: ...
 
 
@@ -33,10 +46,13 @@ class FileStore:
         self.max_size = max_size
         self.ttl = ttl
 
-    def write(self, path: str, data: bytes, *,
-              metadata: dict | None = None) -> None: ...
-    def read(self, path: str) -> bytes: return b""
-    def list(self, prefix: str = "") -> list[str]: return []
+    def write(self, path: str, data: bytes, *, metadata: dict | None = None) -> None: ...
+    def read(self, path: str) -> bytes:
+        return b""
+
+    def list(self, prefix: str = "") -> list[str]:
+        return []
+
     def delete(self, path: str) -> None: ...
 
 
@@ -46,10 +62,14 @@ class StateStore:
     def __init__(self, max_size: str):
         self.max_size = max_size
 
-    def get(self, key: str, default: Any = None) -> Any: return default
+    def get(self, key: str, default: Any = None) -> Any:
+        return default
+
     def set(self, key: str, value: Any) -> None: ...
     def delete(self, key: str) -> None: ...
-    def increment(self, key: str, by: int = 1) -> int: return 0
+    def increment(self, key: str, by: int = 1) -> int:
+        return 0
+
     def clear(self) -> None: ...
 
 

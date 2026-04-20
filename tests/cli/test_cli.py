@@ -92,14 +92,14 @@ def test_add_controller(tmp_path):
 
 
 def test_verify_clean_project_zero_exit(tmp_path):
-    proj = _init_project(tmp_path)
+    _init_project(tmp_path)
     runner.invoke(app, ["add", "device", "modbus-tcp", "sensor"])
     result = runner.invoke(app, ["verify"])
     assert result.exit_code == 0
 
 
 def test_verify_target_flag(tmp_path):
-    proj = _init_project(tmp_path)
+    _init_project(tmp_path)
     runner.invoke(app, ["add", "device", "modbus-tcp", "sensor"])
     # modbus-tcp on esp32 should still produce a non-zero exit (or warnings)
     result = runner.invoke(app, ["verify", "--target", "esp32"])

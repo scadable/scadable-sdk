@@ -39,6 +39,7 @@ TIME_UNITS: dict[str, int] = {
 
 # ── Register address ranges → type ───────────────────────────────
 
+
 def _register_type(address: int) -> str:
     if 1 <= address <= 9999:
         return "coil"
@@ -59,6 +60,7 @@ def _register_writable(address: int, explicit: bool | None) -> bool:
 
 
 # ── Constant extraction helpers ──────────────────────────────────
+
 
 def _const(node: ast.expr) -> object:
     """Return the Python literal value from an AST node, or None."""
@@ -107,6 +109,7 @@ def _call_func_name(node: ast.Call) -> str | None:
 
 # ── Time interval parsing ────────────────────────────────────────
 
+
 def _parse_time_call(node: ast.expr) -> int | None:
     """Parse every(5, SECONDS) → milliseconds, or None."""
     if not isinstance(node, ast.Call):
@@ -133,6 +136,7 @@ def _parse_time_call(node: ast.expr) -> int | None:
 
 # ── Connection parsing ───────────────────────────────────────────
 
+
 def _parse_connection(node: ast.expr) -> dict | None:
     """Parse modbus_tcp(host=..., port=...) → dict."""
     if not isinstance(node, ast.Call):
@@ -152,6 +156,7 @@ def _parse_connection(node: ast.expr) -> dict | None:
 
 
 # ── Register parsing ─────────────────────────────────────────────
+
 
 def _parse_register_call(node: ast.Call) -> dict | None:
     """Parse Register(40001, "temperature", unit="C", scale=0.1) → dict."""
@@ -263,13 +268,11 @@ def _parse_registers_list(node: ast.List) -> list[dict]:
 
 # ── Device class parsing ─────────────────────────────────────────
 
+
 def _parse_device_class(cls: ast.ClassDef, source_path: Path) -> dict | None:
     """Extract device metadata from an AST class definition."""
     # Check that class inherits from Device
-    is_device = any(
-        (isinstance(b, ast.Name) and b.id == "Device")
-        for b in cls.bases
-    )
+    is_device = any((isinstance(b, ast.Name) and b.id == "Device") for b in cls.bases)
     if not is_device:
         return None
 
@@ -368,6 +371,7 @@ def parse_devices(
 
 # ── Controller / trigger parsing ─────────────────────────────────
 
+
 def _to_snake_case(name: str) -> str:
     """Convert CamelCase to snake_case."""
     s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
@@ -383,7 +387,8 @@ def _resolve_device_ref(node: ast.expr, class_map: dict[str, str]) -> str | None
 
 
 def _resolve_field_ref(
-    node: ast.expr, class_map: dict[str, str],
+    node: ast.expr,
+    class_map: dict[str, str],
 ) -> tuple[str | None, str | None]:
     """Resolve Device.field_name → (device_id, field_name)."""
     if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
@@ -419,9 +424,11 @@ def _parse_decorator(
         return None
 
     func = decorator.func
-    if not (isinstance(func, ast.Attribute)
-            and isinstance(func.value, ast.Name)
-            and func.value.id == "on"):
+    if not (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "on"
+    ):
         return None
 
     trigger_type = func.attr
@@ -539,10 +546,7 @@ def _parse_controller_class(
     class_map: dict[str, str],
 ) -> dict | None:
     """Extract controller metadata from an AST class definition."""
-    is_controller = any(
-        (isinstance(b, ast.Name) and b.id == "Controller")
-        for b in cls.bases
-    )
+    is_controller = any((isinstance(b, ast.Name) and b.id == "Controller") for b in cls.bases)
     if not is_controller:
         return None
 

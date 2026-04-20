@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from scadable.compiler.parser import parse_devices, parse_controllers
+from scadable.compiler.parser import parse_controllers, parse_devices
 
 
 def _write(path: Path, body: str) -> Path:
@@ -36,7 +36,9 @@ def test_class_without_device_base_skipped(tmp_path):
 
 
 def test_multiple_devices_in_one_file(tmp_path):
-    f = _write(tmp_path / "many.py", """
+    f = _write(
+        tmp_path / "many.py",
+        """
 from scadable import Device, Register, modbus_tcp
 
 class A(Device):
@@ -48,7 +50,8 @@ class B(Device):
     id = "b"
     connection = modbus_tcp(host="y")
     registers = [Register(40002, "y")]
-""")
+""",
+    )
     devs, class_map, _ = parse_devices([f])
     assert len(devs) == 2
     assert {d["id"] for d in devs} == {"a", "b"}
@@ -65,20 +68,25 @@ def test_controller_syntax_error_surfaces_warning(tmp_path):
 
 def test_class_without_id_attribute(tmp_path):
     """Device with no `id` attribute is skipped silently — id is required."""
-    f = _write(tmp_path / "noid.py", """
+    f = _write(
+        tmp_path / "noid.py",
+        """
 from scadable import Device, Register, modbus_tcp
 
 class D(Device):
     connection = modbus_tcp(host="x")
     registers = [Register(40001, "x")]
-""")
+""",
+    )
     devs, _, _ = parse_devices([f])
     # No id → no device emitted (or device with empty id; both acceptable)
     assert all(d.get("id") for d in devs) or devs == []
 
 
 def test_imports_dont_become_devices(tmp_path):
-    f = _write(tmp_path / "imp.py", """
+    f = _write(
+        tmp_path / "imp.py",
+        """
 from scadable import Device, Register, modbus_tcp
 from some.other.module import SomeClass
 
@@ -86,7 +94,8 @@ class Real(Device):
     id = "real"
     connection = modbus_tcp(host="x")
     registers = [Register(40001, "x")]
-""")
+""",
+    )
     devs, _, _ = parse_devices([f])
     assert len(devs) == 1
     assert devs[0]["id"] == "real"

@@ -1,7 +1,9 @@
 """Control primitives: PID controller and StateMachine."""
 
 from __future__ import annotations
-from typing import Any, Callable
+
+from collections.abc import Callable
+from typing import Any
 
 
 class PID:
@@ -11,9 +13,18 @@ class PID:
     the computation — this class just holds the parameters.
     """
 
-    def __init__(self, *, input: Any, output: Any, setpoint: float,
-                 kp: float = 1.0, ki: float = 0.0, kd: float = 0.0,
-                 output_min: float = 0, output_max: float = 100):
+    def __init__(
+        self,
+        *,
+        input: Any,
+        output: Any,
+        setpoint: float,
+        kp: float = 1.0,
+        ki: float = 0.0,
+        kd: float = 0.0,
+        output_min: float = 0,
+        output_max: float = 100,
+    ):
         self.input = input
         self.output = output
         self.setpoint = setpoint
@@ -27,10 +38,14 @@ class PID:
 class State:
     """A state in a StateMachine."""
 
-    def __init__(self, name: str, *,
-                 on_enter: Callable | None = None,
-                 timeout: int | None = None,
-                 next: str | None = None):
+    def __init__(
+        self,
+        name: str,
+        *,
+        on_enter: Callable | None = None,
+        timeout: int | None = None,
+        next: str | None = None,
+    ):
         self.name = name
         self.on_enter = on_enter
         self.timeout = timeout

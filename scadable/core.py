@@ -9,11 +9,11 @@ Device uses a custom metaclass (DeviceMeta) to:
 """
 
 from __future__ import annotations
+
 from typing import Any
 
 from . import _registry
-from .registers import Register, Characteristic, Pin, Field
-
+from .registers import Characteristic, Field, Pin, Register
 
 # All register-like types that the metaclass should intercept
 _REGISTER_TYPES = (Register, Characteristic, Pin, Field)
@@ -137,13 +137,12 @@ class Controller:
         Accepts: "good" | "stale" | "bad".
         """
         if quality not in ("good", "stale", "bad"):
-            raise ValueError(
-                f"publish: quality={quality!r} must be 'good', 'stale', or 'bad'"
-            )
+            raise ValueError(f"publish: quality={quality!r} must be 'good', 'stale', or 'bad'")
         pass  # implemented by gateway runtime
 
-    def upload(self, route: str, blob: bytes, *,
-               name: str = "", metadata: dict | None = None) -> None:
+    def upload(
+        self, route: str, blob: bytes, *, name: str = "", metadata: dict | None = None
+    ) -> None:
         """Upload a file to a configured cloud storage route."""
         pass
 

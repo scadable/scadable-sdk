@@ -8,10 +8,11 @@ calls `register_device(LineSensor)`. The registry is used by:
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .core import Device, Controller
+    pass
 
 _devices: dict[str, type] = {}
 _controllers: dict[str, type] = {}

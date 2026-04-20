@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pytest
 
@@ -30,6 +30,7 @@ def make_project(tmp_path: Path) -> Callable[..., Path]:
     Usage:
         proj = make_project(devices={"temp.py": "..."}, controllers={"ctl.py": "..."})
     """
+
     def _make(
         name: str = "test-project",
         version: str = "0.1.0",
@@ -39,9 +40,7 @@ def make_project(tmp_path: Path) -> Callable[..., Path]:
     ) -> Path:
         root = tmp_path / name
         root.mkdir()
-        (root / "scadable.toml").write_text(
-            f'name = "{name}"\nversion = "{version}"\n'
-        )
+        (root / "scadable.toml").write_text(f'name = "{name}"\nversion = "{version}"\n')
         if devices:
             d = root / "devices"
             d.mkdir()
@@ -58,6 +57,7 @@ def make_project(tmp_path: Path) -> Callable[..., Path]:
             for fname, body in models.items():
                 (m / fname).write_text(textwrap.dedent(body).lstrip())
         return root
+
     return _make
 
 

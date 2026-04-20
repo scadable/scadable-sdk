@@ -1,11 +1,10 @@
 """scadable verify — validate a project without compiling."""
 
 import ast
-import sys
 from pathlib import Path
+
 import typer
 from rich import print as rprint
-from rich.table import Table
 
 
 def run_verify(target: str = "") -> None:
@@ -65,8 +64,7 @@ def run_verify(target: str = "") -> None:
         else:
             for cls in classes:
                 has_decorated = any(
-                    isinstance(n, ast.FunctionDef) and n.decorator_list
-                    for n in ast.walk(cls)
+                    isinstance(n, ast.FunctionDef) and n.decorator_list for n in ast.walk(cls)
                 )
                 if has_decorated:
                     rprint(f"  [green]✓[/green] {f}: {cls.name}")
@@ -100,11 +98,10 @@ def run_verify(target: str = "") -> None:
         for w in warnings:
             rprint(f"  [yellow]⚠[/yellow] {w}")
     else:
-        rprint(f"  [green]✓ all checks passed[/green]")
+        rprint("  [green]✓ all checks passed[/green]")
 
 
-def _check(condition: bool, pass_msg: str, fail_msg: str,
-           collection: list[str]) -> None:
+def _check(condition: bool, pass_msg: str, fail_msg: str, collection: list[str]) -> None:
     if condition:
         rprint(f"  [green]✓[/green] {pass_msg}")
     else:
@@ -112,8 +109,9 @@ def _check(condition: bool, pass_msg: str, fail_msg: str,
         rprint(f"  [red]✗[/red] {fail_msg}")
 
 
-def _validate_device_class(filepath: Path, cls: ast.ClassDef,
-                           errors: list[str], warnings: list[str]) -> None:
+def _validate_device_class(
+    filepath: Path, cls: ast.ClassDef, errors: list[str], warnings: list[str]
+) -> None:
     """Basic AST-level validation of a Device class."""
     has_id = False
     has_connection = False
@@ -168,8 +166,8 @@ def _memory_estimate(target: str, num_devices: int, num_controllers: int) -> Non
         rprint(f"  [bold]RAM total:    {ram_used}KB / {ram_total}KB ({pct:.0f}%)[/bold]")
 
         if pct > 80:
-            rprint(f"  [red]⚠ RAM usage high — consider reducing devices[/red]")
+            rprint("  [red]⚠ RAM usage high — consider reducing devices[/red]")
         else:
-            rprint(f"  [green]✓ RAM fits[/green]")
+            rprint("  [green]✓ RAM fits[/green]")
     else:
-        rprint(f"  [green]✓ Linux target — no memory constraints[/green]")
+        rprint("  [green]✓ Linux target — no memory constraints[/green]")

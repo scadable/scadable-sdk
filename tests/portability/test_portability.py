@@ -18,7 +18,6 @@ from scadable._targets import (
     is_supported_protocol,
 )
 
-
 # ── target registry shape ────────────────────────────────────────
 
 
@@ -28,15 +27,15 @@ def test_three_targets_registered():
 
 def test_each_target_has_required_keys():
     for name, spec in TARGETS.items():
-        for k in ("memory_kb", "protocols", "dtypes",
-                  "controller_execution", "status"):
+        for k in ("memory_kb", "protocols", "dtypes", "controller_execution", "status"):
             assert k in spec, f"target {name} missing key {k}"
 
 
 def test_status_values_are_known():
     for name, spec in TARGETS.items():
-        assert spec["status"] in ("production", "preview", "not-implemented"), \
+        assert spec["status"] in ("production", "preview", "not-implemented"), (
             f"target {name} has unknown status {spec['status']}"
+        )
 
 
 # ── linux is the production target ───────────────────────────────
@@ -47,14 +46,12 @@ def test_linux_status_is_production():
 
 
 def test_linux_supports_every_protocol_we_emit():
-    for proto in ("modbus_tcp", "modbus_rtu", "ble", "gpio",
-                  "serial", "i2c", "rtsp"):
+    for proto in ("modbus_tcp", "modbus_rtu", "ble", "gpio", "serial", "i2c", "rtsp"):
         assert is_supported_protocol("linux", proto)
 
 
 def test_linux_supports_every_dtype():
-    for dt in ("uint16", "int16", "uint32", "int32",
-               "float32", "float64", "bool"):
+    for dt in ("uint16", "int16", "uint32", "int32", "float32", "float64", "bool"):
         assert is_supported_dtype("linux", dt)
 
 

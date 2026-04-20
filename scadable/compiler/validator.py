@@ -26,9 +26,7 @@ def validate(
 
     # Look up target spec once. Unknown target → loud error, no warnings.
     if target not in TARGETS:
-        errors.append(
-            f"unknown target {target!r}. Known: {', '.join(sorted(TARGETS))}"
-        )
+        errors.append(f"unknown target {target!r}. Known: {', '.join(sorted(TARGETS))}")
         return errors, warnings
     spec = get_target(target)
 
@@ -81,8 +79,7 @@ def validate(
     # Validate controller triggers
     for ctrl in controllers:
         for trigger in ctrl.get("triggers", []):
-            _validate_trigger(ctrl["id"], trigger, device_ids, field_index,
-                              errors, warnings)
+            _validate_trigger(ctrl["id"], trigger, device_ids, field_index, errors, warnings)
 
     # Surface preview-status as a warning so users know they're early.
     if spec["status"] != "production":

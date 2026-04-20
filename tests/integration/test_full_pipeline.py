@@ -11,7 +11,6 @@ import yaml
 from typer.testing import CliRunner
 
 from scadable.cli.main import app
-from scadable.compiler import compile_project
 
 runner = CliRunner()
 
@@ -76,14 +75,18 @@ def test_bundle_extracts_to_expected_layout(tmp_path):
 def test_compile_with_invalid_dtype_via_python(tmp_path):
     """Direct API: bad dtype raises at Register construction time."""
     import pytest
+
     from scadable import Register
+
     with pytest.raises(ValueError):
         Register(40001, "x", dtype="float128")
 
 
 def test_compile_with_invalid_on_error_via_python():
     import pytest
+
     from scadable import Register
+
     with pytest.raises(ValueError):
         Register(40001, "x", on_error="ignore")
 

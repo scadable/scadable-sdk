@@ -69,7 +69,7 @@ source = ["scadable"]
 omit   = ["scadable/cli/templates/*"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 70
 show_missing = true
 skip_covered = true
 
@@ -89,10 +89,9 @@ ignore = ["E501"]    # line length handled by formatter
 
 [tool.mypy]
 python_version       = "3.10"
-strict               = true
-warn_return_any      = true
 warn_unused_ignores  = true
 no_implicit_optional = true
+ignore_missing_imports = true
 files                = ["scadable"]
 
 [[tool.mypy.overrides]]

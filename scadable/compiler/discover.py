@@ -33,26 +33,19 @@ def discover_project(root: Path) -> ProjectFiles:
     # devices/*.py
     devices_dir = root / "devices"
     if devices_dir.is_dir():
-        pf.device_files = sorted(
-            f for f in devices_dir.glob("*.py")
-            if not f.name.startswith("_")
-        )
+        pf.device_files = sorted(f for f in devices_dir.glob("*.py") if not f.name.startswith("_"))
 
     # controllers/*.py
     controllers_dir = root / "controllers"
     if controllers_dir.is_dir():
         pf.controller_files = sorted(
-            f for f in controllers_dir.glob("*.py")
-            if not f.name.startswith("_")
+            f for f in controllers_dir.glob("*.py") if not f.name.startswith("_")
         )
 
     # models/*.py (optional)
     models_dir = root / "models"
     if models_dir.is_dir():
-        pf.model_files = sorted(
-            f for f in models_dir.glob("*.py")
-            if not f.name.startswith("_")
-        )
+        pf.model_files = sorted(f for f in models_dir.glob("*.py") if not f.name.startswith("_"))
 
     # Derive project name from directory if not set via manifest
     if not pf.name:

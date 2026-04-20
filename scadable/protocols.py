@@ -6,8 +6,8 @@ The compiler reads it to generate the right driver code.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any
+
+from dataclasses import dataclass
 
 
 @dataclass
@@ -69,10 +69,12 @@ def modbus_tcp(host: str = "", port: int = 502, slave: int = 1) -> ModbusTCPConn
     return ModbusTCPConnection(host=host, port=port, slave=slave)
 
 
-def modbus_rtu(port: str = "", baudrate: int = 9600, slave: int = 1,
-               parity: str = "N", stopbits: int = 1) -> ModbusRTUConnection:
-    return ModbusRTUConnection(port=port, baudrate=baudrate, slave=slave,
-                               parity=parity, stopbits=stopbits)
+def modbus_rtu(
+    port: str = "", baudrate: int = 9600, slave: int = 1, parity: str = "N", stopbits: int = 1
+) -> ModbusRTUConnection:
+    return ModbusRTUConnection(
+        port=port, baudrate=baudrate, slave=slave, parity=parity, stopbits=stopbits
+    )
 
 
 def ble(mac: str = "") -> BLEConnection:
@@ -83,10 +85,10 @@ def gpio() -> GPIOConnection:
     return GPIOConnection()
 
 
-def serial(port: str = "", baudrate: int = 9600,
-           parity: str = "N", stopbits: int = 1) -> SerialConnection:
-    return SerialConnection(port=port, baudrate=baudrate,
-                            parity=parity, stopbits=stopbits)
+def serial(
+    port: str = "", baudrate: int = 9600, parity: str = "N", stopbits: int = 1
+) -> SerialConnection:
+    return SerialConnection(port=port, baudrate=baudrate, parity=parity, stopbits=stopbits)
 
 
 def i2c(bus: int = 1, address: int = 0) -> I2CConnection:

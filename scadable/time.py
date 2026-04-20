@@ -1,6 +1,7 @@
 """Time constants and interval helpers."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 
 

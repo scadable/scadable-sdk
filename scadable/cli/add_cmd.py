@@ -1,9 +1,9 @@
 """scadable add — scaffold devices, controllers, and models."""
 
 from pathlib import Path
+
 import typer
 from rich import print as rprint
-
 
 DEVICE_TEMPLATES = {
     "modbus-tcp": '''"""TODO: describe this device."""
