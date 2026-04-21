@@ -17,7 +17,7 @@ from .time import HOURS, MILLISECONDS, MINUTES, SECONDS, every
 from .topics import Topics
 from .triggers import CONNECTED, DEGRADED, DISCONNECTED, ERROR, TIMEOUT, UPDATING, on
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     # Core
