@@ -56,7 +56,12 @@ CDN_BASE = os.environ.get(
 # raise TargetNotImplementedError further upstream, so this just
 # records the eventual mapping for clarity.
 ARCHS_FOR_TARGET: dict[str, list[str]] = {
-    "linux": ["linux-amd64", "linux-arm64", "linux-armv7"],
+    # linux-armv7 is intentionally absent until both the gateway and
+    # every driver ship for that target — fetching a missing arch from
+    # the CDN would 404 and fail the compile. Add it back when
+    # gateway-linux's release.yml + cd-driver-*.yml workflows include
+    # armv7-unknown-linux-musleabihf.
+    "linux": ["linux-amd64", "linux-arm64"],
     "esp32": ["esp32"],
     "rtos": ["rtos-cortex-m4"],
 }
