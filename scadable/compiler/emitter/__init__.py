@@ -29,6 +29,7 @@ from .linux import LinuxEmitter
 from .rtos import RtosEmitter
 
 if TYPE_CHECKING:
+    from .._drivers import StagedDriver
     from ..discover import ProjectFiles
     from ..memory import MemoryEstimate
 
@@ -57,6 +58,7 @@ def emit_manifest(
     memory: MemoryEstimate,
     target: str,
     output_dir: Path,
+    drivers: list[StagedDriver] | None = None,
 ) -> Path:
     """Emit manifest.json — same JSON shape on every target."""
     return _select(target).emit_manifest(
@@ -66,6 +68,7 @@ def emit_manifest(
         memory,
         target,
         output_dir,
+        drivers=drivers,
     )
 
 

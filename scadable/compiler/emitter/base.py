@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from .._drivers import StagedDriver
     from ..discover import ProjectFiles
     from ..memory import MemoryEstimate
 
@@ -31,8 +32,15 @@ class Emitter(ABC):
         memory: MemoryEstimate,
         target: str,
         output_dir: Path,
+        drivers: list[StagedDriver] | None = None,
     ) -> Path:
-        """Write manifest.json — identical schema across all targets."""
+        """Write manifest.json — identical schema across all targets.
+
+        `drivers` is the list of driver binaries the compiler fetched
+        from the CDN and staged into the bundle. Empty list (or None)
+        means no drivers were bundled, which is also the pre-W3
+        behavior — existing projects compile unchanged.
+        """
         manifest = {
             "project": {
                 "name": project.name,
@@ -42,6 +50,16 @@ class Emitter(ABC):
             "devices": [_clean_device(d) for d in devices],
             "controllers": [_clean_controller(c) for c in controllers],
             "memory": asdict(memory),
+            "drivers": [
+                {
+                    "name": d.name,
+                    "version": d.version,
+                    "arch": d.arch,
+                    "sha256": d.sha256,
+                    "path": d.relative_path,
+                }
+                for d in (drivers or [])
+            ],
         }
         path = output_dir / "manifest.json"
         path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")

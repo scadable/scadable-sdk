@@ -9,8 +9,15 @@ import shutil
 from dataclasses import asdict
 from pathlib import Path
 
+from ._drivers import (
+    DriverFetchError,
+    StagedDriver,
+    fetch_drivers,
+    read_driver_pins,
+    required_drivers,
+)
 from .discover import discover_project
-from .emitter import emit_bundle, emit_driver_configs, emit_manifest
+from .emitter import EMITTERS, emit_bundle, emit_driver_configs, emit_manifest
 from .memory import estimate_memory
 from .parser import parse_controllers, parse_devices
 from .validator import validate
@@ -28,6 +35,7 @@ class CompileResult:
         "output_dir",
         "manifest_path",
         "bundle_path",
+        "drivers",
     )
 
     def __init__(self) -> None:
@@ -39,6 +47,10 @@ class CompileResult:
         self.output_dir: Path = Path(".")
         self.manifest_path: Path | None = None
         self.bundle_path: Path | None = None
+        # Driver binaries fetched from the CDN and bundled into the
+        # release. Empty list means no drivers were pinned in
+        # .scadable/build.yml — matches pre-W3 behavior.
+        self.drivers: list[StagedDriver] = []
 
 
 def compile_project(
@@ -53,7 +65,8 @@ def compile_project(
     2. Parse devices and controllers via AST
     3. Validate cross-references
     4. Estimate memory
-    5. Emit manifest.json + driver TOMLs + bundle.tar.gz
+    5. Fetch pinned driver binaries from the CDN (W3)
+    6. Emit manifest.json + per-device YAML + per-driver TOML + bundle
     """
     result = CompileResult()
     out = output_dir or (project_root / "out")
@@ -87,8 +100,37 @@ def compile_project(
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
-    manifest_path = emit_manifest(project, devices, controllers, mem, target, out)
+    # 5a. Driver fetch — only when build.yml has pins AND devices use
+    #     driver-backed protocols. Missing pins for used protocols are
+    #     a loud warning today (not an error) so pre-W3 projects keep
+    #     compiling; future releases will upgrade this to an error.
+    pins = read_driver_pins(project_root)
+    needed = required_drivers(devices)
+    if needed and pins:
+        try:
+            result.drivers = fetch_drivers(pins, needed, target, out)
+        except DriverFetchError as e:
+            result.errors.append(str(e))
+            return result
+    elif needed and not pins:
+        result.warnings.append(
+            f"devices use driver(s) {sorted(needed)} but .scadable/build.yml "
+            "has no `drivers` block — binaries will not be bundled. Add e.g.:\n"
+            f'    drivers:\n      {next(iter(sorted(needed)))}: "0.1.0"'
+        )
+
+    # 6. Emit manifest + per-device YAML + (linux only) per-driver TOML
+    manifest_path = emit_manifest(
+        project, devices, controllers, mem, target, out, drivers=result.drivers
+    )
     emit_driver_configs(devices, out, target=target)
+    # Contract-format configs are a Linux-emitter responsibility today;
+    # esp32/rtos emitters raise at their driver-config step anyway, so
+    # this call is gated the same way.
+    emitter = EMITTERS[target]
+    if hasattr(emitter, "emit_device_configs_contract"):
+        emitter.emit_device_configs_contract(devices, out)
+
     bundle_path = emit_bundle(out, target=target)
 
     result.manifest_path = manifest_path
