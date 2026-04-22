@@ -17,9 +17,16 @@ runner = CliRunner()
 
 
 def test_version_subcommand():
+    # Pull from the same place the CLI does (scadable.__version__) so
+    # bumping the version in scadable/__init__.py + pyproject doesn't
+    # regress this test. importlib.metadata reads from installed
+    # metadata which can lag the source tree in editable installs;
+    # __version__ is what `scadable version` actually prints.
+    from scadable import __version__
+
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert "0.2.0" in result.stdout
+    assert __version__ in result.stdout
 
 
 def test_help_lists_all_subcommands():
