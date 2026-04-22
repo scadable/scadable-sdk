@@ -3,11 +3,12 @@ name: pipeline-smoke
 # End-to-end smoke test for the Scadable device pipeline:
 #   scadable-sim (Modbus TCP) → driver-modbus binary → stdout JSON Sample assertions.
 #
-# Lives in scadable-sdk because the sim lives here. Checks out
-# gateway-linux as a sibling at runtime to build driver-modbus, then
-# runs the smoke test against it. The cloud-side legs
-# (MQTT → broker → historian → dashboard) are exercised separately by
-# the e2e-tests harness that needs a real cluster.
+# Lives in scadable-sdk because the sim lives here. Pulls the prebuilt
+# driver-modbus binary from the CDN (W2.5 pipeline publishes it on every
+# gateway-linux release) so we don't need cross-repo checkout — the
+# default GITHUB_TOKEN can't see scadable/gateway-linux which is private.
+# The cloud-side legs (MQTT → broker → historian → dashboard) are
+# exercised separately by the e2e-tests harness that needs a real cluster.
 
 on:
   pull_request:
@@ -25,30 +26,33 @@ on:
       - "tests/smoke/**"
       - ".github/workflows/pipeline-smoke.yml"
   workflow_dispatch:
+    inputs:
+      driver_version:
+        description: "driver-modbus version to fetch from CDN (default: 0.1.0)"
+        required: false
+        default: "0.1.0"
 
 # Cancel in-flight runs when newer commits land on the same ref.
 concurrency:
   group: pipeline-smoke-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Bump when a new driver-modbus is cut on the gateway-linux side.
+  # Versioned URL keeps CI reproducible — `latest` would silently change
+  # behavior on an unrelated push.
+  DRIVER_MODBUS_VERSION: "0.1.0"
+  CDN_BASE: "https://scadable-cdn.tor1.digitaloceanspaces.com"
+
 jobs:
   smoke:
     name: sim → driver-modbus → assertions
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
 
     steps:
       - name: Checkout scadable-sdk
         uses: actions/checkout@v4
-        with:
-          path: scadable-sdk
-
-      - name: Checkout gateway-linux (sibling)
-        uses: actions/checkout@v4
-        with:
-          repository: scadable/gateway-linux
-          ref: main
-          path: gateway-linux
 
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
@@ -56,37 +60,32 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry + target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            gateway-linux/target
-          key: ${{ runner.os }}-cargo-driver-modbus-${{ hashFiles('gateway-linux/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-driver-modbus-
-
-      - name: Build driver-modbus (release)
-        run: cargo build --release -p scadable-driver-modbus
-        working-directory: gateway-linux
+      - name: Download prebuilt driver-modbus from CDN
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.event.inputs.driver_version || env.DRIVER_MODBUS_VERSION }}"
+          ARCH="linux-amd64"
+          BIN_URL="${CDN_BASE}/drivers/modbus/${VERSION}/${ARCH}/driver-modbus"
+          SHA_URL="${BIN_URL}.sha256"
+          mkdir -p "$RUNNER_TEMP/driver"
+          echo "Fetching $BIN_URL"
+          curl -fsSL --retry 3 --retry-delay 2 -o "$RUNNER_TEMP/driver/driver-modbus" "$BIN_URL"
+          echo "Fetching $SHA_URL"
+          EXPECTED=$(curl -fsSL --retry 3 --retry-delay 2 "$SHA_URL" | awk '{print $1}')
+          ACTUAL=$(sha256sum "$RUNNER_TEMP/driver/driver-modbus" | awk '{print $1}')
+          if [ "$EXPECTED" != "$ACTUAL" ]; then
+            echo "::error::sha256 mismatch — expected $EXPECTED, got $ACTUAL"
+            exit 1
+          fi
+          chmod +x "$RUNNER_TEMP/driver/driver-modbus"
+          echo "DRIVER_MODBUS_BIN=$RUNNER_TEMP/driver/driver-modbus" >> "$GITHUB_ENV"
+          "$RUNNER_TEMP/driver/driver-modbus" --help 2>&1 | head -5 || true
 
       - name: Install scadable-sdk with [sim] extra
         run: pip install -e ".[sim]"
-        working-directory: scadable-sdk
-
-      - name: Install pytest plugins
-        run: pip install pytest-timeout
-        working-directory: scadable-sdk
 
       - name: Run smoke test
-        env:
-          DRIVER_MODBUS_BIN: ${{ github.workspace }}/gateway-linux/target/release/driver-modbus
         run: pytest tests/smoke -v -m smoke
-        working-directory: scadable-sdk
 
       - name: Upload pytest output on failure
         if: failure()
@@ -94,6 +93,6 @@ jobs:
         with:
           name: pytest-output
           path: |
-            scadable-sdk/.pytest_cache
+            .pytest_cache
             **/*.log
           if-no-files-found: ignore
