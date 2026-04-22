@@ -26,6 +26,7 @@ The test is marked ``@pytest.mark.smoke`` so it can be selected via
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import socket
@@ -241,12 +242,11 @@ def test_pipeline_smoke_sim_to_driver_stdout(
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=2)
-        # Drain stderr for failure messages.
+        # Drain stderr for failure messages. Tolerate any read error
+        # — we're already in teardown and the diagnostic is best-effort.
         if proc.stderr is not None:
-            try:
+            with contextlib.suppress(Exception):
                 stderr_buf.append(proc.stderr.read() or "")
-            except Exception:
-                pass
 
     if len(samples) < 3:
         joined = "".join(stderr_buf)

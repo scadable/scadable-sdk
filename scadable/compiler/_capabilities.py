@@ -21,6 +21,7 @@ test in ``tests/compiler/test_capabilities.py`` enforces this).
 
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -83,7 +84,7 @@ class Capabilities:
     controllers: dict[str, Status]
 
     @classmethod
-    def load(cls) -> "Capabilities":
+    def load(cls) -> Capabilities:
         # importlib.resources avoids __file__ shenanigans inside zip
         # installs; ``files()`` is the post-3.9 stable API.
         pkg = resources.files("scadable")
@@ -91,7 +92,7 @@ class Capabilities:
             return cls.load_from(path)
 
     @classmethod
-    def load_from(cls, path: Path) -> "Capabilities":
+    def load_from(cls, path: Path) -> Capabilities:
         body = yaml.safe_load(Path(path).read_text()) or {}
         return cls(
             version=int(body.get("version", 1)),
@@ -288,13 +289,11 @@ def check_controllers(
 # ── Internals ────────────────────────────────────────────────────
 
 
-def _call_func_simple_name(node: ast.Call) -> str:  # type: ignore[name-defined]
+def _call_func_simple_name(node: ast.Call) -> str:
     """For a Call node, return the simple function name regardless of
     how it was referenced: ``data(...)``, ``scadable.data(...)``,
     ``storage.data(...)`` all return ``"data"``.
     """
-    import ast
-
     func = node.func
     if isinstance(func, ast.Name):
         return func.id

@@ -274,10 +274,7 @@ def _build_argparser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_argparser().parse_args(argv)
 
-    if args.config:
-        cfg = load_config(args.config)
-    else:
-        cfg = SimConfig()
+    cfg = load_config(args.config) if args.config else SimConfig()
 
     if args.host:
         cfg.host = args.host
