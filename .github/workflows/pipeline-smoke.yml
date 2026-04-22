@@ -1,0 +1,99 @@
+name: pipeline-smoke
+
+# End-to-end smoke test for the Scadable device pipeline:
+#   scadable-sim (Modbus TCP) → driver-modbus binary → stdout JSON Sample assertions.
+#
+# Lives in scadable-sdk because the sim lives here. Checks out
+# gateway-linux as a sibling at runtime to build driver-modbus, then
+# runs the smoke test against it. The cloud-side legs
+# (MQTT → broker → historian → dashboard) are exercised separately by
+# the e2e-tests harness that needs a real cluster.
+
+on:
+  pull_request:
+    paths:
+      - "scadable/sim/**"
+      - "scadable/cli/sim_cmd.py"
+      - "tests/smoke/**"
+      - ".github/workflows/pipeline-smoke.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "scadable/sim/**"
+      - "scadable/cli/sim_cmd.py"
+      - "tests/smoke/**"
+      - ".github/workflows/pipeline-smoke.yml"
+  workflow_dispatch:
+
+# Cancel in-flight runs when newer commits land on the same ref.
+concurrency:
+  group: pipeline-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: sim → driver-modbus → assertions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout scadable-sdk
+        uses: actions/checkout@v4
+        with:
+          path: scadable-sdk
+
+      - name: Checkout gateway-linux (sibling)
+        uses: actions/checkout@v4
+        with:
+          repository: scadable/gateway-linux
+          ref: main
+          path: gateway-linux
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            gateway-linux/target
+          key: ${{ runner.os }}-cargo-driver-modbus-${{ hashFiles('gateway-linux/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-driver-modbus-
+
+      - name: Build driver-modbus (release)
+        run: cargo build --release -p scadable-driver-modbus
+        working-directory: gateway-linux
+
+      - name: Install scadable-sdk with [sim] extra
+        run: pip install -e ".[sim]"
+        working-directory: scadable-sdk
+
+      - name: Install pytest plugins
+        run: pip install pytest-timeout
+        working-directory: scadable-sdk
+
+      - name: Run smoke test
+        env:
+          DRIVER_MODBUS_BIN: ${{ github.workspace }}/gateway-linux/target/release/driver-modbus
+        run: pytest tests/smoke -v -m smoke
+        working-directory: scadable-sdk
+
+      - name: Upload pytest output on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-output
+          path: |
+            scadable-sdk/.pytest_cache
+            **/*.log
+          if-no-files-found: ignore

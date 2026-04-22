@@ -70,6 +70,9 @@ scadable = ["py.typed", "_capabilities.yaml"]
 testpaths   = ["tests"]
 addopts     = "-q --strict-markers"
 xfail_strict = true
+markers = [
+    "smoke: end-to-end sim → driver-modbus → assertions test. Requires DRIVER_MODBUS_BIN to point at a built binary, or it skips. Run via tests/smoke/.",
+]
 
 [tool.coverage.run]
 source = ["scadable"]
