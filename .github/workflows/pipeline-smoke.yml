@@ -81,8 +81,10 @@ jobs:
           echo "DRIVER_MODBUS_BIN=$RUNNER_TEMP/driver/driver-modbus" >> "$GITHUB_ENV"
           "$RUNNER_TEMP/driver/driver-modbus" --help 2>&1 | head -5 || true
 
-      - name: Install scadable-sdk with [sim] extra
-        run: pip install -e ".[sim]"
+      - name: Install scadable-sdk with [sim,test] extras
+        # [sim] pulls pymodbus for the simulator; [test] pulls pytest +
+        # ruff + mypy. Smoke needs both.
+        run: pip install -e ".[sim,test]"
 
       - name: Run smoke test
         run: pytest tests/smoke -v -m smoke
