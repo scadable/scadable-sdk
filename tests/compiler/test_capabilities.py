@@ -28,9 +28,7 @@ from scadable.compiler._drivers import PROTOCOL_TO_DRIVER
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PLATFORM_CAPS = REPO_ROOT / "platform" / "capabilities.yaml"
-SDK_CAPS = (
-    Path(__file__).resolve().parents[2] / "scadable" / "_capabilities.yaml"
-)
+SDK_CAPS = Path(__file__).resolve().parents[2] / "scadable" / "_capabilities.yaml"
 
 
 # ── Helpers ──────────────────────────────────────────────────────
@@ -61,8 +59,7 @@ def test_capabilities_yaml_superset_of_protocol_to_driver():
     caps = Capabilities.load()
     missing = set(PROTOCOL_TO_DRIVER.keys()) - set(caps.protocols.keys())
     assert not missing, (
-        f"protocols in PROTOCOL_TO_DRIVER but missing from capabilities.yaml: "
-        f"{sorted(missing)}"
+        f"protocols in PROTOCOL_TO_DRIVER but missing from capabilities.yaml: {sorted(missing)}"
     )
 
 

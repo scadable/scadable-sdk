@@ -51,8 +51,7 @@ try:
     from pymodbus.simulator import DataType, SimData, SimDevice
 except ImportError as exc:  # pragma: no cover - import guard for clarity
     raise SystemExit(
-        "scadable.sim.modbus_sim requires pymodbus. "
-        "Install with: pip install 'scadable-sdk[sim]'"
+        "scadable.sim.modbus_sim requires pymodbus. Install with: pip install 'scadable-sdk[sim]'"
     ) from exc
 
 
@@ -114,9 +113,7 @@ def load_config(path: str | Path) -> SimConfig:
     for r in regs_raw:
         kind = str(r.get("type", "holding")).lower()
         if kind not in _VALID_TYPES:
-            raise ValueError(
-                f"register {r!r}: type must be one of {sorted(_VALID_TYPES)}"
-            )
+            raise ValueError(f"register {r!r}: type must be one of {sorted(_VALID_TYPES)}")
         regs.append(
             RegisterCfg(
                 addr=int(r["addr"]),

@@ -52,10 +52,10 @@ class PreviewWarning:
     surfaces it the same way as every other warning.
     """
 
-    kind: str          # "protocol" | "storage" | "controller"
-    name: str          # e.g. "ble"
-    source: str        # path/where it appeared, "" if unknown
-    tracking: str      # e.g. "gateway-linux#1" or "not yet tracked"
+    kind: str  # "protocol" | "storage" | "controller"
+    name: str  # e.g. "ble"
+    source: str  # path/where it appeared, "" if unknown
+    tracking: str  # e.g. "gateway-linux#1" or "not yet tracked"
 
     def format(self) -> str:
         loc = f" ({self.source})" if self.source else ""
@@ -98,7 +98,9 @@ class Capabilities:
             version=int(body.get("version", 1)),
             protocols={k: _validate_status(v) for k, v in (body.get("protocols") or {}).items()},
             storage={k: _validate_status(v) for k, v in (body.get("storage") or {}).items()},
-            controllers={k: _validate_status(v) for k, v in (body.get("controllers") or {}).items()},
+            controllers={
+                k: _validate_status(v) for k, v in (body.get("controllers") or {}).items()
+            },
         )
 
 

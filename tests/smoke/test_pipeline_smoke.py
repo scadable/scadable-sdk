@@ -181,9 +181,9 @@ def driver_toml(tmp_path: Path, sim: dict) -> tuple[Path, str]:
 id = "{device_id}"
 transport = "tcp"
 poll_ms = 200
-host = "{sim['host']}"
-port = {sim['port']}
-unit_id = {sim['slave']}
+host = "{sim["host"]}"
+port = {sim["port"]}
+unit_id = {sim["slave"]}
 
 [[device.register]]
 name = "temperature"
@@ -251,16 +251,14 @@ def test_pipeline_smoke_sim_to_driver_stdout(
     if len(samples) < 3:
         joined = "".join(stderr_buf)
         pytest.fail(
-            f"only got {len(samples)} sample(s) in 10s; expected ≥3.\n"
-            f"driver stderr:\n{joined}"
+            f"only got {len(samples)} sample(s) in 10s; expected ≥3.\ndriver stderr:\n{joined}"
         )
 
     # 1. Schema version + driver echoes the device_id we declared.
     for s in samples:
         assert s.get("v") == 1, f"unexpected wire version: {s}"
         assert s.get("device_id") == expected_device_id, (
-            f"device_id mismatch: got {s.get('device_id')!r}, "
-            f"expected {expected_device_id!r}"
+            f"device_id mismatch: got {s.get('device_id')!r}, expected {expected_device_id!r}"
         )
         assert s.get("register") == "temperature"
 
@@ -273,8 +271,7 @@ def test_pipeline_smoke_sim_to_driver_stdout(
     #    so a transient zero doesn't flake the test.
     values = [s.get("value") for s in samples]
     assert any(v not in (0, None) for v in values), (
-        f"all sample values were zero/None — sim probably not driving "
-        f"the register: {values}"
+        f"all sample values were zero/None — sim probably not driving the register: {values}"
     )
 
     # 4. Timestamps are monotonic non-decreasing. RFC3339 lexical sort
@@ -282,5 +279,3 @@ def test_pipeline_smoke_sim_to_driver_stdout(
     #    emits UTC), so a string comparison is sufficient.
     ts = [s["ts"] for s in samples]
     assert ts == sorted(ts), f"timestamps not monotonic: {ts}"
-
-
