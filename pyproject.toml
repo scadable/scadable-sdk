@@ -51,13 +51,20 @@ test = [
     "types-pyyaml>=6.0",
     "types-toml>=0.10",
 ]
+# Optional simulators (Modbus TCP today, more later) used by e2e-tests
+# and by developers who want to drive examples without real hardware.
+# Kept out of the core install so production SDK users don't pull in
+# pymodbus.
+sim = [
+    "pymodbus>=3.6",
+]
 
 [tool.setuptools.packages.find]
 include = ["scadable*"]
 exclude = ["tests*", "examples*", "docs*"]
 
 [tool.setuptools.package-data]
-scadable = ["py.typed"]
+scadable = ["py.typed", "_capabilities.yaml"]
 
 [tool.pytest.ini_options]
 testpaths   = ["tests"]

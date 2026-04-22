@@ -2,11 +2,14 @@
 
 import typer
 
+from .sim_cmd import sim_app
+
 app = typer.Typer(
     name="scadable",
     help="Scadable Edge SDK — write device logic in Python, compile to native.",
     no_args_is_help=True,
 )
+app.add_typer(sim_app, name="sim")
 
 
 @app.command()

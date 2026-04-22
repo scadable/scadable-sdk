@@ -21,6 +21,15 @@ PROTOCOL_MAP: dict[str, str] = {
     "serial": "serial",
     "i2c": "i2c",
     "rtsp": "rtsp",
+    # `can` is parsed so the capability check (compiler/_capabilities.py)
+    # can fail it with "UNSUPPORTED" and tell the user where to look.
+    # If the compiler ever ships a real CAN driver, change the status
+    # in platform/capabilities.yaml — no parser edit needed.
+    "can": "can",
+    # `spi` similarly: PROTOCOL_TO_DRIVER claims a future spi driver,
+    # capabilities.yaml will gate it. Keep parser permissive so the
+    # capability check is the single source of truth for what works.
+    "spi": "spi",
 }
 
 # ── Time-unit multipliers (name in source → milliseconds) ────────

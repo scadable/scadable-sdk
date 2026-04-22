@@ -1,0 +1,42 @@
+# Scadable Platform Capabilities — single source of truth.
+#
+# This file declares which protocols, storage backends, and controller
+# types are actually production-ready vs preview vs unsupported. The
+# SDK reads this at compile time so a user gets a clear error before
+# they push + apply, instead of discovering the missing driver after.
+#
+# Status legend:
+#   production  — driver exists, gateway runs it, customer can rely on it
+#   preview     — DSL accepted, gateway runtime not shipped yet (warns)
+#   unsupported — declared but no plan to ship soon (errors)
+#
+# When you add a new protocol/storage/controller to the SDK, add it
+# here in the same commit. The SDK compile flow has a drift guard
+# that fails CI if PROTOCOL_TO_DRIVER and this file disagree.
+#
+# Sync: this file is vendored into the SDK at
+#   scadable-sdk/scadable/_capabilities.yaml
+# A SDK test asserts the two files stay byte-identical so the SDK
+# package doesn't have to read outside its install root at runtime.
+
+version: 1
+
+protocols:
+  modbus_tcp: production
+  modbus_rtu: production
+  ble: preview
+  gpio: preview
+  serial: preview
+  i2c: preview
+  rtsp: preview
+  spi: preview          # SPI driver reserved in PROTOCOL_TO_DRIVER, runtime not shipped
+  can: unsupported
+
+storage:
+  data: preview      # DataStore — sqlite-backed, deferred (gateway-linux#1)
+  state: preview     # StateStore — Redis-backed, deferred (gateway-linux#2)
+  files: preview     # FileStore — local + cloud upload, deferred (gateway-linux#3)
+
+controllers:
+  pid: production
+  state_machine: production

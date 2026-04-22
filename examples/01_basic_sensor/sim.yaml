@@ -1,0 +1,26 @@
+# Modbus TCP register map for the basic_sensor example.
+#
+# Run from this directory:
+#
+#   scadable sim modbus --config sim.yaml
+#
+# Then point your gateway / driver at 127.0.0.1:1502, slave 1.
+# The temperature register slowly drifts so dashboard charts move.
+
+host: 127.0.0.1
+port: 1502
+slave: 1
+
+registers:
+  # Temperature in tenths of a degree Celsius (matches devices/temp_sensor.py
+  # which sets `scale=0.1`). Drifts ~6°C/min so the chart is obviously alive.
+  - addr: 40001
+    type: holding
+    initial: 250          # 25.0 °C
+    drift_per_sec: 1.0    # +0.1 °C/s after the SDK applies scale=0.1
+
+  # A second register for multi-point demos / future tests. Stays put
+  # so the smoke test has something with stable expected values.
+  - addr: 40002
+    type: holding
+    initial: 100

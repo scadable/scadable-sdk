@@ -9,6 +9,14 @@ import shutil
 from dataclasses import asdict
 from pathlib import Path
 
+from ._capabilities import (
+    Capabilities,
+    CapabilityError,
+    PreviewWarning,
+    check_controllers,
+    check_protocols,
+    check_storage_imports,
+)
 from ._drivers import (
     DriverFetchError,
     StagedDriver,
@@ -88,7 +96,23 @@ def compile_project(
     result.errors = errors
     result.warnings = device_warnings + controller_warnings + warnings
 
-    if errors:
+    # 3a. Capability check — protocol/storage/controller status against
+    #     platform/capabilities.yaml (vendored as scadable/_capabilities.yaml).
+    #     unsupported = hard error, preview = warning, production = silent.
+    #     Run BEFORE the early-return on validate() errors so users see
+    #     all relevant feedback in one pass when both kinds of issue
+    #     show up together.
+    try:
+        capabilities = Capabilities.load()
+        preview_warnings: list[PreviewWarning] = []
+        preview_warnings.extend(check_protocols(capabilities, devices))
+        preview_warnings.extend(check_storage_imports(capabilities, project_root))
+        preview_warnings.extend(check_controllers(capabilities, controllers))
+        result.warnings.extend(w.format() for w in preview_warnings)
+    except CapabilityError as e:
+        result.errors.append(str(e))
+
+    if result.errors:
         return result
 
     # 4. Memory estimate
