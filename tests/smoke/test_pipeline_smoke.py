@@ -264,9 +264,7 @@ def test_pipeline_smoke_sim_to_driver_stdout(
 
     if len(ticks) < 3:
         joined = "".join(stderr_buf)
-        pytest.fail(
-            f"only got {len(ticks)} tick(s) in 10s; expected ≥3.\ndriver stderr:\n{joined}"
-        )
+        pytest.fail(f"only got {len(ticks)} tick(s) in 10s; expected ≥3.\ndriver stderr:\n{joined}")
 
     # 1. Wire version + driver echoes the device_id we declared.
     #    v=2 is the per-device snapshot envelope from driver-modbus
@@ -275,8 +273,7 @@ def test_pipeline_smoke_sim_to_driver_stdout(
     for t in ticks:
         assert t.get("v") == 2, f"expected v=2 DeviceTick, got: {t}"
         assert t.get("device_id") == expected_device_id, (
-            f"device_id mismatch: got {t.get('device_id')!r}, "
-            f"expected {expected_device_id!r}"
+            f"device_id mismatch: got {t.get('device_id')!r}, expected {expected_device_id!r}"
         )
         assert "registers" in t and isinstance(t["registers"], dict), (
             f"missing/wrong-shape registers map: {t}"
@@ -321,9 +318,7 @@ def test_pipeline_smoke_sim_to_driver_stdout(
     # 6. The constant register stays at 100 across every tick.
     for t in ticks:
         const_val = t["registers"]["constant"]["value"]
-        assert const_val == 100, (
-            f"constant register should always read 100, got {const_val}"
-        )
+        assert const_val == 100, f"constant register should always read 100, got {const_val}"
 
     # 7. Each envelope has a single shared timestamp — the v=2 driver
     #    captures one `now()` per cycle (NOT per register), so multi-

@@ -242,9 +242,7 @@ def test_compile_without_build_yml_auto_pins_from_capabilities(tmp_path):
     out = tmp_path / "out"
     result = compile_project(proj, target="linux", output_dir=out)
     assert not result.errors
-    assert any(
-        "auto-pinned" in w and "modbus" in w for w in result.warnings
-    ), result.warnings
+    assert any("auto-pinned" in w and "modbus" in w for w in result.warnings), result.warnings
     # Drivers ARE bundled now (one per arch — linux-amd64 + linux-arm64).
     assert {d.name for d in result.drivers} == {"modbus"}
     assert {d.arch for d in result.drivers} == {"linux-amd64", "linux-arm64"}
