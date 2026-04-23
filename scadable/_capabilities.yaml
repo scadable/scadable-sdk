@@ -40,3 +40,20 @@ storage:
 controllers:
   pid: production
   state_machine: production
+
+# Recommended driver versions per driver name. The SDK reads this and
+# auto-pins it into bundles when a project's `.scadable/build.yml`
+# omits a pin for a driver the project actually uses. Without this, a
+# customer would have to know to write
+#   drivers:
+#     modbus: "0.2.0"
+# in their build.yml or compile fails with "no version pinned" — which
+# is what bricked customer-zero on 2026-04-23 (driver-modbus 0.1.0
+# stayed on the Pi because no upgrade path existed for new bundles).
+#
+# Ship a new driver release: bump the version here AND in the vendored
+# SDK copy (the SDK test enforces byte-identical). Old projects that
+# explicitly pinned older versions are unaffected; new compiles get the
+# new default.
+driver_versions:
+  modbus: "0.2.0"

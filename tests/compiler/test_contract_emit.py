@@ -231,17 +231,24 @@ def _minimal_project(tmp_path: Path, build_yml: str | None = None) -> Path:
     return proj
 
 
-def test_compile_without_build_yml_warns_about_missing_pin(tmp_path):
-    # Device needs `modbus` driver but no build.yml → compile succeeds
-    # with a warning. Matches pre-W3 behavior where driver binaries
-    # weren't bundled at all.
+def test_compile_without_build_yml_auto_pins_from_capabilities(tmp_path):
+    # Device needs `modbus` driver and build.yml has no `drivers:` block.
+    # As of 2026-04-23 this falls back to the `driver_versions` mapping in
+    # platform/capabilities.yaml — compile auto-pins the recommended
+    # version, emits a warning telling the user it did so, and bundles
+    # the binaries. Previous behaviour (no bundle, just a warning)
+    # silently shipped projects that wouldn't actually run on a gateway.
     proj = _minimal_project(tmp_path)
     out = tmp_path / "out"
     result = compile_project(proj, target="linux", output_dir=out)
     assert not result.errors
-    assert any("modbus" in w and "build.yml" in w for w in result.warnings)
-    assert result.drivers == []
-    # Contract-format TOML still produced (no binaries yet).
+    assert any(
+        "auto-pinned" in w and "modbus" in w for w in result.warnings
+    ), result.warnings
+    # Drivers ARE bundled now (one per arch — linux-amd64 + linux-arm64).
+    assert {d.name for d in result.drivers} == {"modbus"}
+    assert {d.arch for d in result.drivers} == {"linux-amd64", "linux-arm64"}
+    # Contract-format TOML still produced.
     assert (out / "devices" / "modbus.toml").exists()
 
 

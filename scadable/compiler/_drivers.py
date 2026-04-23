@@ -162,27 +162,56 @@ def fetch_drivers(
     needed: set[str],
     target: str,
     output_dir: Path,
+    *,
+    default_versions: dict[str, str] | None = None,
+    auto_pinned_warnings: list[str] | None = None,
 ) -> list[StagedDriver]:
     """Download each declared+needed driver for every arch the target
     runs on, verify sha256, stage into output_dir/drivers/<arch>/.
 
     A pin is silently ignored if no device on this project uses it
-    (saves bandwidth on projects that pin extra drivers); a needed
-    driver with no pin raises — the user has to declare what they
-    want, no implicit "latest".
+    (saves bandwidth on projects that pin extra drivers).
+
+    For a needed driver with no pin: the previous behaviour was to hard-
+    error and force the user to add a pin to ``.scadable/build.yml``. As
+    of 2026-04-23, callers may pass ``default_versions`` (typically the
+    ``Capabilities.driver_versions`` mapping from the platform-wide
+    ``capabilities.yaml``); a needed driver without a pin falls back to
+    this mapping with a warning appended to ``auto_pinned_warnings``.
+    Only when BOTH the pin and the default are missing does this raise —
+    that's a real "we don't ship a driver for this protocol" condition,
+    not a missing-pin paperwork error. Driven by the customer-zero
+    incident where every fresh project compile failed because the
+    template didn't pre-pin driver-modbus and the customer had no way
+    to know which version to write.
     """
     if target not in ARCHS_FOR_TARGET:
         raise DriverFetchError(f"no arch matrix for target {target!r}")
 
     pins_by_name = {p.name: p for p in pins}
+    defaults = default_versions or {}
 
     missing = needed - pins_by_name.keys()
-    if missing:
+    truly_missing: set[str] = set()
+    for name in missing:
+        if name in defaults:
+            pins_by_name[name] = DriverPin(name=name, version=defaults[name])
+            if auto_pinned_warnings is not None:
+                auto_pinned_warnings.append(
+                    f"driver {name!r} not pinned in .scadable/build.yml — "
+                    f"auto-pinned to {defaults[name]!r} from platform capabilities. "
+                    f"Add an explicit pin if you need to lock to a different version."
+                )
+        else:
+            truly_missing.add(name)
+
+    if truly_missing:
         raise DriverFetchError(
-            f"devices use driver(s) {sorted(missing)!r} but no version is "
-            f"pinned in .scadable/build.yml. Add e.g.\n"
+            f"devices use driver(s) {sorted(truly_missing)!r} but no version is "
+            f"pinned in .scadable/build.yml AND no default version is declared "
+            f"in platform/capabilities.yaml. Add e.g.\n"
             f"    drivers:\n"
-            f'      {next(iter(sorted(missing)))}: "0.1.0"'
+            f'      {next(iter(sorted(truly_missing)))}: "0.1.0"'
         )
 
     archs = ARCHS_FOR_TARGET[target]

@@ -82,6 +82,11 @@ class Capabilities:
     protocols: dict[str, Status]
     storage: dict[str, Status]
     controllers: dict[str, Status]
+    # Recommended driver versions per driver name (e.g. {"modbus": "0.2.0"}).
+    # Consumed by the driver-fetcher when build.yml omits a pin for a needed
+    # driver. Empty if the file predates the field — old SDKs running against
+    # a newer YAML stay safe; new SDKs against an old YAML just don't auto-pin.
+    driver_versions: dict[str, str]
 
     @classmethod
     def load(cls) -> Capabilities:
@@ -100,6 +105,9 @@ class Capabilities:
             storage={k: _validate_status(v) for k, v in (body.get("storage") or {}).items()},
             controllers={
                 k: _validate_status(v) for k, v in (body.get("controllers") or {}).items()
+            },
+            driver_versions={
+                str(k): str(v) for k, v in (body.get("driver_versions") or {}).items()
             },
         )
 

@@ -18,17 +18,39 @@ from ._capabilities import (
     check_storage_imports,
 )
 from ._drivers import (
+    PROTOCOL_TO_DRIVER,
     DriverFetchError,
     StagedDriver,
     fetch_drivers,
     read_driver_pins,
-    required_drivers,
 )
 from .discover import discover_project
 from .emitter import EMITTERS, emit_bundle, emit_driver_configs, emit_manifest
 from .memory import estimate_memory
 from .parser import parse_controllers, parse_devices
 from .validator import validate
+
+
+def _production_drivers(devices: list[dict], capabilities: Capabilities) -> set[str]:
+    """Subset of drivers needed by the project that the platform actually
+    ships binaries for (i.e. their protocol is `production`). Preview/
+    unsupported protocols don't bundle drivers — the user already saw
+    a PreviewWarning at the capability check step, and forcing a driver
+    fetch would error out before the rest of the bundle gets a chance
+    to land.
+    """
+    needed: set[str] = set()
+    for dev in devices:
+        proto = (dev.get("connection") or {}).get("protocol")
+        if not proto:
+            continue
+        driver = PROTOCOL_TO_DRIVER.get(proto)
+        if not driver:
+            continue
+        if capabilities.protocols.get(proto) != "production":
+            continue
+        needed.add(driver)
+    return needed
 
 
 class CompileResult:
@@ -124,24 +146,38 @@ def compile_project(
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
-    # 5a. Driver fetch — only when build.yml has pins AND devices use
-    #     driver-backed protocols. Missing pins for used protocols are
-    #     a loud warning today (not an error) so pre-W3 projects keep
-    #     compiling; future releases will upgrade this to an error.
+    # 5a. Driver fetch.
+    #
+    # As of 2026-04-23, missing pins fall back to the
+    # ``capabilities.driver_versions`` defaults (set in
+    # platform/capabilities.yaml) instead of warning-and-skipping. The
+    # warn-and-skip behaviour produced bundles without drivers and led
+    # to gateways running stale drivers (or no driver) silently — the
+    # exact failure mode that bricked customer-zero on the dev Pi when
+    # the modbus wire format changed and no compile shipped 0.2.0.
+    #
+    # Drivers for preview/unsupported protocols are intentionally
+    # excluded from `needed` — those protocols don't ship binaries by
+    # design and the user already saw a PreviewWarning at step 3a.
+    # Including them here would force the compile to error out before
+    # we even get a chance to emit a bundle the user can inspect.
     pins = read_driver_pins(project_root)
-    needed = required_drivers(devices)
-    if needed and pins:
+    needed = _production_drivers(devices, capabilities)
+    if needed:
         try:
-            result.drivers = fetch_drivers(pins, needed, target, out)
+            auto_pinned: list[str] = []
+            result.drivers = fetch_drivers(
+                pins,
+                needed,
+                target,
+                out,
+                default_versions=capabilities.driver_versions,
+                auto_pinned_warnings=auto_pinned,
+            )
+            result.warnings.extend(auto_pinned)
         except DriverFetchError as e:
             result.errors.append(str(e))
             return result
-    elif needed and not pins:
-        result.warnings.append(
-            f"devices use driver(s) {sorted(needed)} but .scadable/build.yml "
-            "has no `drivers` block — binaries will not be bundled. Add e.g.:\n"
-            f'    drivers:\n      {next(iter(sorted(needed)))}: "0.1.0"'
-        )
 
     # 6. Emit manifest + per-device YAML + (linux only) per-driver TOML
     manifest_path = emit_manifest(
