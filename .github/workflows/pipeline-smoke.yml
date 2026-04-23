@@ -41,7 +41,9 @@ env:
   # Bump when a new driver-modbus is cut on the gateway-linux side.
   # Versioned URL keeps CI reproducible — `latest` would silently change
   # behavior on an unrelated push.
-  DRIVER_MODBUS_VERSION: "0.1.0"
+  # Bumped to 0.2.0 with the per-device snapshot wire format. Smoke
+  # asserts v=2 envelopes, so older drivers fail it loudly.
+  DRIVER_MODBUS_VERSION: "0.2.0"
   CDN_BASE: "https://scadable-cdn.tor1.digitaloceanspaces.com"
 
 jobs:
