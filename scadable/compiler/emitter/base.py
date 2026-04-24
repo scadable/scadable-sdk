@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tarfile
 from abc import ABC, abstractmethod
 from dataclasses import asdict
@@ -13,6 +14,14 @@ if TYPE_CHECKING:
     from .._drivers import StagedDriver
     from ..discover import ProjectFiles
     from ..memory import MemoryEstimate
+
+# Recognised env-var placeholder syntax. Matches GitHub Actions /
+# shell `${VAR_NAME}` (uppercase + digits + underscore, must start
+# with a letter). Anything that doesn't match this pattern is left
+# alone as a literal string by the gateway's expander too — the two
+# scanners must agree on the regex or the dashboard will surface
+# vars that never get expanded (or vice versa).
+_ENV_VAR_PATTERN = re.compile(r"\$\{([A-Z][A-Z0-9_]*)\}")
 
 
 class Emitter(ABC):
@@ -40,6 +49,12 @@ class Emitter(ABC):
         from the CDN and staged into the bundle. Empty list (or None)
         means no drivers were bundled, which is also the pre-W3
         behavior — existing projects compile unchanged.
+
+        `referenced_env_vars` is the unique set of `${VAR}` placeholder
+        names appearing in any device dict's string values. The cloud
+        release pipeline reads this and auto-creates "unset" rows on
+        every gateway subscribed to this project (GitHub Actions style)
+        so the dashboard surfaces the slot before the gateway boots.
         """
         manifest = {
             "project": {
@@ -60,6 +75,7 @@ class Emitter(ABC):
                 }
                 for d in (drivers or [])
             ],
+            "referenced_env_vars": find_env_var_refs(devices),
         }
         path = output_dir / "manifest.json"
         path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
@@ -83,6 +99,32 @@ class Emitter(ABC):
     def emit_driver_configs(self, devices: list[dict], output_dir: Path) -> list[Path]:
         """Write per-device driver configs in the target's native format."""
         ...
+
+
+def find_env_var_refs(devices: list[dict]) -> list[str]:
+    """Walk every string value in every device dict and return the
+    sorted-unique set of `${VAR}` placeholder names found inside.
+
+    The gateway's expander uses an identical regex (see
+    `gateway-linux/src/handlers/env_vars.rs`); both must agree or
+    the dashboard surfaces vars that never get expanded.
+    """
+    seen: set[str] = set()
+    for dev in devices:
+        _collect_refs(dev, seen)
+    return sorted(seen)
+
+
+def _collect_refs(value: object, seen: set[str]) -> None:
+    if isinstance(value, str):
+        for match in _ENV_VAR_PATTERN.finditer(value):
+            seen.add(match.group(1))
+    elif isinstance(value, dict):
+        for v in value.values():
+            _collect_refs(v, seen)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _collect_refs(v, seen)
 
 
 def _clean_device(dev: dict) -> dict:
