@@ -166,12 +166,21 @@ def test_manifest_schema(tmp_path):
 def test_manifest_referenced_env_vars_empty_for_static_devices(tmp_path):
     """No ${VAR} placeholders → manifest carries an empty list, not absent."""
     project = ProjectFiles(
-        root=tmp_path, name="t", version="0.1.0",
-        device_files=[], controller_files=[], model_files=[],
+        root=tmp_path,
+        name="t",
+        version="0.1.0",
+        device_files=[],
+        controller_files=[],
+        model_files=[],
     )
     mem = MemoryEstimate(
-        runtime_kb=0, devices_kb=0, registers_kb=0, controllers_kb=0,
-        total_kb=0, ram_limit_kb=0, target="linux",
+        runtime_kb=0,
+        devices_kb=0,
+        registers_kb=0,
+        controllers_kb=0,
+        total_kb=0,
+        ram_limit_kb=0,
+        target="linux",
     )
     LinuxEmitter().emit_manifest(project, [SAMPLE_DEVICE], [], mem, "linux", tmp_path)
     body = json.loads((tmp_path / "manifest.json").read_text())
@@ -181,23 +190,47 @@ def test_manifest_referenced_env_vars_empty_for_static_devices(tmp_path):
 def test_manifest_referenced_env_vars_collects_unique_sorted(tmp_path):
     """Multiple ${VAR} hits across devices land deduped + sorted."""
     project = ProjectFiles(
-        root=tmp_path, name="t", version="0.1.0",
-        device_files=[], controller_files=[], model_files=[],
+        root=tmp_path,
+        name="t",
+        version="0.1.0",
+        device_files=[],
+        controller_files=[],
+        model_files=[],
     )
     mem = MemoryEstimate(
-        runtime_kb=0, devices_kb=0, registers_kb=0, controllers_kb=0,
-        total_kb=0, ram_limit_kb=0, target="linux",
+        runtime_kb=0,
+        devices_kb=0,
+        registers_kb=0,
+        controllers_kb=0,
+        total_kb=0,
+        ram_limit_kb=0,
+        target="linux",
     )
     devices = [
-        {**SAMPLE_DEVICE, "id": "a", "connection": {
-            "protocol": "modbus_tcp", "host": "${MODBUS_HOST}", "port": 502,
-        }},
-        {**SAMPLE_DEVICE, "id": "b", "connection": {
-            "protocol": "modbus_tcp", "host": "${MODBUS_HOST}",
-            "creds": "${API_KEY}",
-        }},
-        {**SAMPLE_DEVICE, "id": "c", "name": "no-vars-here",
-            "connection": {"protocol": "modbus_tcp", "host": "10.0.0.1"}},
+        {
+            **SAMPLE_DEVICE,
+            "id": "a",
+            "connection": {
+                "protocol": "modbus_tcp",
+                "host": "${MODBUS_HOST}",
+                "port": 502,
+            },
+        },
+        {
+            **SAMPLE_DEVICE,
+            "id": "b",
+            "connection": {
+                "protocol": "modbus_tcp",
+                "host": "${MODBUS_HOST}",
+                "creds": "${API_KEY}",
+            },
+        },
+        {
+            **SAMPLE_DEVICE,
+            "id": "c",
+            "name": "no-vars-here",
+            "connection": {"protocol": "modbus_tcp", "host": "10.0.0.1"},
+        },
     ]
     LinuxEmitter().emit_manifest(project, devices, [], mem, "linux", tmp_path)
     body = json.loads((tmp_path / "manifest.json").read_text())

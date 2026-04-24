@@ -6,7 +6,6 @@ import json
 import re
 import tarfile
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -123,9 +122,7 @@ def _collect_refs(value: object, seen: set[str]) -> None:
     elif isinstance(value, dict):
         for v in value.values():
             _collect_refs(v, seen)
-    elif isinstance(value, (list, tuple)) or (
-        isinstance(value, Iterable) and not isinstance(value, (bytes, bytearray))
-    ):
+    elif isinstance(value, (list, tuple)):
         for v in value:
             _collect_refs(v, seen)
 
