@@ -156,9 +156,7 @@ def test_verify_json_broken_device_reports_error(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     assert len(payload["errors"]) >= 1
-    err = next(
-        e for e in payload["errors"] if e["file"] and e["file"].endswith("broken.py")
-    )
+    err = next(e for e in payload["errors"] if e["file"] and e["file"].endswith("broken.py"))
     assert err["severity"] == "error"
     assert "missing" in err["message"]
     # Code is reserved for future stable error codes; today it's null.
@@ -177,9 +175,7 @@ def test_verify_json_syntax_error_reports_line(tmp_path):
     payload = json.loads(result.stdout)
     assert payload["ok"] is False
     syntax_errs = [
-        e
-        for e in payload["errors"]
-        if e["file"] and e["file"].endswith("bad_syntax.py")
+        e for e in payload["errors"] if e["file"] and e["file"].endswith("bad_syntax.py")
     ]
     assert syntax_errs, f"no syntax error reported in payload: {payload}"
     assert syntax_errs[0]["line"] is not None

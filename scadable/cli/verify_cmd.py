@@ -242,9 +242,7 @@ def _validate_device_class(
 
     if has_id and has_connection and has_registers:
         if not quiet:
-            rprint(
-                f"  [green]✓[/green] {filepath}: {cls.name} ({register_count} registers)"
-            )
+            rprint(f"  [green]✓[/green] {filepath}: {cls.name} ({register_count} registers)")
     else:
         missing = []
         if not has_id:
@@ -262,9 +260,7 @@ def _validate_device_class(
             )
         )
         if not quiet:
-            rprint(
-                f"  [red]✗[/red] {filepath}: {cls.name} missing {', '.join(missing)}"
-            )
+            rprint(f"  [red]✗[/red] {filepath}: {cls.name} missing {', '.join(missing)}")
 
 
 def _memory_estimate(target: str, num_devices: int, num_controllers: int) -> None:
