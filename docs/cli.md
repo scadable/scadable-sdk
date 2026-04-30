@@ -90,12 +90,48 @@ Validate the current project. No side effects, no output files.
 | Flag                 | Default | Notes                                    |
 |----------------------|---------|------------------------------------------|
 | `--target <name>`    | `""`    | Run target-capability checks for this target. Empty = no target check, just structure. |
+| `--json`             | `false` | Suppress the rich/coloured output and emit a single JSON object on stdout. Exit codes are unchanged so callers that only check `$?` keep working. |
 
 ```bash
 scadable verify                    # structure + cross-refs
 scadable verify --target esp32     # + capability matrix check
 scadable verify --target rtos      # + memory estimate
+scadable verify --json             # machine-parseable output
 ```
+
+### `--json` output schema
+
+When `--json` is set, exactly one JSON object is written to stdout. No
+rich-formatted text is emitted. The shape is stable:
+
+```json
+{
+  "ok": true,
+  "validated_files": ["devices/temp_sensor.py"],
+  "errors": [
+    {
+      "file": "devices/temp_sensor.py",
+      "line": 12,
+      "code": null,
+      "message": "TempSensor missing registers",
+      "severity": "error"
+    }
+  ],
+  "warnings": []
+}
+```
+
+- `ok` — `true` iff `errors` is empty (warnings do not flip this).
+- `validated_files` — Python files that parsed successfully, relative to
+  the project root, forward-slash separated.
+- `errors` / `warnings` — finding objects with the same shape. `file`
+  and `line` may be `null` for project-level findings (e.g. missing
+  `scadable.toml`). `code` is `null` today; reserved for future stable
+  error codes. `severity` is `"error"` or `"warning"` matching the array
+  it lives in.
+
+Exit codes match the non-`--json` mode, so a caller can simply check
+`$?` and parse stdout as JSON on demand.
 
 What it checks:
 

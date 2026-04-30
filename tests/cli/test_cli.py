@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -112,6 +113,93 @@ def test_verify_target_flag(tmp_path):
     result = runner.invoke(app, ["verify", "--target", "esp32"])
     # verify exit code is non-zero OR error appears
     assert result.exit_code != 0 or "esp32" in result.stdout.lower()
+
+
+# ── verify --json ───────────────────────────────────────────────
+
+
+def test_verify_json_clean_project(tmp_path):
+    """`--json` on a clean project: ok=true, empty errors/warnings.
+
+    Consumed by the service-agents `validate_syntax` tool, so the
+    shape MUST be the documented schema and the stdout MUST contain
+    exactly one JSON object.
+    """
+    _init_project(tmp_path)
+    runner.invoke(app, ["add", "device", "modbus-tcp", "sensor"])
+    result = runner.invoke(app, ["verify", "--json"])
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["errors"] == []
+    # `validated_files` should at least include the device we added
+    assert any(f.endswith("devices/sensor.py") for f in payload["validated_files"])
+    # All warnings are well-formed dicts (init scaffolds an empty
+    # controllers/ directory, so a warning here is allowed but optional).
+    for w in payload["warnings"]:
+        assert set(w.keys()) >= {"file", "line", "code", "message", "severity"}
+        assert w["severity"] == "warning"
+
+
+def test_verify_json_broken_device_reports_error(tmp_path):
+    """A device file missing required attrs surfaces in `errors`."""
+    proj = _init_project(tmp_path)
+    # Hand-write a Device class that is missing `connection` + `registers`
+    # so the validator emits a structured error.
+    (proj / "devices" / "broken.py").write_text(
+        "class Broken:\n    id = 'broken'\n",
+    )
+    result = runner.invoke(app, ["verify", "--json"])
+
+    assert result.exit_code == 1, f"expected non-zero exit, got: {result.stdout}"
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    assert len(payload["errors"]) >= 1
+    err = next(
+        e for e in payload["errors"] if e["file"] and e["file"].endswith("broken.py")
+    )
+    assert err["severity"] == "error"
+    assert "missing" in err["message"]
+    # Code is reserved for future stable error codes; today it's null.
+    assert err["code"] is None
+    # Class-level findings carry a line number.
+    assert isinstance(err["line"], int)
+
+
+def test_verify_json_syntax_error_reports_line(tmp_path):
+    """Syntax errors include the offending line number."""
+    proj = _init_project(tmp_path)
+    (proj / "devices" / "bad_syntax.py").write_text("def broken(:\n")
+    result = runner.invoke(app, ["verify", "--json"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False
+    syntax_errs = [
+        e
+        for e in payload["errors"]
+        if e["file"] and e["file"].endswith("bad_syntax.py")
+    ]
+    assert syntax_errs, f"no syntax error reported in payload: {payload}"
+    assert syntax_errs[0]["line"] is not None
+    assert syntax_errs[0]["severity"] == "error"
+
+
+def test_verify_default_output_unchanged(tmp_path):
+    """Without `--json`, output is the legacy rich-formatted text."""
+    _init_project(tmp_path)
+    runner.invoke(app, ["add", "device", "modbus-tcp", "sensor"])
+    result = runner.invoke(app, ["verify"])
+
+    assert result.exit_code == 0
+    # Legacy human-readable section headers must still be present.
+    assert "Checking project structure" in result.stdout
+    assert "Validating Python syntax" in result.stdout
+    assert "Result" in result.stdout
+    # And the output is NOT a JSON document.
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(result.stdout)
 
 
 # ── compile ─────────────────────────────────────────────────────
