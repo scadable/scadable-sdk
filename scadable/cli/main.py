@@ -38,11 +38,16 @@ def add(
 @app.command()
 def verify(
     target: str = typer.Option("", help="Target platform for memory estimation"),
+    json_output: bool = typer.Option(
+        False,
+        "--json",
+        help="Emit a single JSON object on stdout instead of human-readable output.",
+    ),
 ):
     """Validate the current project."""
     from .verify_cmd import run_verify
 
-    run_verify(target)
+    run_verify(target, json_output=json_output)
 
 
 @app.command()
