@@ -33,9 +33,12 @@ def test_each_target_has_required_keys():
 
 def test_status_values_are_known():
     for name, spec in TARGETS.items():
-        assert spec["status"] in ("production", "preview", "not-implemented"), (
-            f"target {name} has unknown status {spec['status']}"
-        )
+        assert spec["status"] in (
+            "production",
+            "connection_only",
+            "preview",
+            "not-implemented",
+        ), f"target {name} has unknown status {spec['status']}"
 
 
 # ── linux is the production target ───────────────────────────────
@@ -62,8 +65,10 @@ def test_linux_unbounded_memory():
 # ── esp32 + rtos are preview ─────────────────────────────────────
 
 
-def test_esp32_status_is_preview():
-    assert TARGETS["esp32"]["status"] == "preview"
+def test_esp32_status_is_connection_only():
+    # gateway-esp MVP ships a runtime that connects + streams logs but the
+    # SDK project-bundle compile path is still pending. See _targets.py.
+    assert TARGETS["esp32"]["status"] == "connection_only"
 
 
 def test_rtos_status_is_preview():

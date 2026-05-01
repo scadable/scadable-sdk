@@ -23,7 +23,12 @@ class TargetSpec(TypedDict):
     protocols: frozenset[str]
     dtypes: frozenset[str]
     controller_execution: str
-    status: str  # "production" | "preview" | "not-implemented"
+    status: str  # "production" | "connection_only" | "preview" | "not-implemented"
+    # connection_only: gateway runtime ships and connects to cloud (presence + logs +
+    # metrics); SDK project bundles for this target are NOT compiled yet. The dashboard
+    # surfaces gateways at this status as "connected, no project bundle support" so
+    # operators can verify the device is online and see its log stream while the
+    # per-target compiler emitter is still in flight.
 
 
 TARGETS: dict[str, TargetSpec] = {
@@ -75,7 +80,12 @@ TARGETS: dict[str, TargetSpec] = {
             }
         ),
         "controller_execution": "micropython_or_codegen",
-        "status": "preview",
+        # Bumped from "preview" 2026-05-01: the gateway-esp MVP ships a runtime
+        # that connects, enrolls via EST, and streams logs into the dashboard.
+        # The SDK project-bundle compile path for this target is still pending
+        # (compile_cmd.py raises NotImplementedError); validator behaviour is
+        # unchanged. See plan: ../../../.claude/plans/partitioned-enchanting-lighthouse.md
+        "status": "connection_only",
     },
     "rtos": {
         "memory_kb": 256,
