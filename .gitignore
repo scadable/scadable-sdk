@@ -9,3 +9,6 @@ coverage.xml
 .mypy_cache/
 .ruff_cache/
 .venv/
+
+# Subagent worktrees should never be committed
+.claude/worktrees/
