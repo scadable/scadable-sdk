@@ -234,3 +234,195 @@ class WeirdUnit(Controller):
     result = _compile_esp(tmp_path, src)
     assert result.errors
     assert "FORTNIGHTS" in result.errors[0] or "unit" in result.errors[0]
+
+
+# ---------------- W8: lifecycle + mqtt subscriptions ----------------
+
+
+def test_on_startup_lowers_to_lifecycle_startup(tmp_path):
+    """@on.startup methods land in manifest.lifecycle.startup[] with a
+    publishes[] mirroring the schedule's payload descriptor shape."""
+    src = """
+from scadable import Controller, on
+
+class BootDemo(Controller):
+    @on.startup
+    def init(self):
+        self.publish("status/boot", {"v": 1})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    startup = manifest["lifecycle"]["startup"]
+    assert len(startup) == 1
+    entry = startup[0]
+    assert entry["controller"] == "BootDemo"
+    assert entry["method"] == "init"
+    assert entry["publishes"] == [
+        {
+            "topic_suffix": "status/boot",
+            "payload": {"v": {"kind": "constant", "value": 1}},
+        }
+    ]
+    # No interval methods → no schedules; mqtt_subscriptions empty.
+    assert manifest["schedules"] == []
+    assert manifest["mqtt_subscriptions"] == []
+
+
+def test_on_shutdown_lowers_to_lifecycle_shutdown(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class ShutdownDemo(Controller):
+    @on.shutdown
+    def teardown(self):
+        self.publish("status/halt", {"reason": "graceful"})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    shutdown = manifest["lifecycle"]["shutdown"]
+    assert len(shutdown) == 1
+    entry = shutdown[0]
+    assert entry["controller"] == "ShutdownDemo"
+    assert entry["method"] == "teardown"
+    assert entry["publishes"][0]["topic_suffix"] == "status/halt"
+    assert entry["publishes"][0]["payload"] == {
+        "reason": {"kind": "constant", "value": "graceful"}
+    }
+    assert manifest["lifecycle"]["startup"] == []
+
+
+def test_on_message_lowers_to_subscription(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class CmdDemo(Controller):
+    @on.message(topic="cmd/restart")
+    def on_restart(self):
+        self.publish("status/ack", {"cmd": "restart"})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    subs = manifest["mqtt_subscriptions"]
+    assert len(subs) == 1
+    sub = subs[0]
+    assert sub["topic_suffix"] == "cmd/restart"
+    assert sub["controller"] == "CmdDemo"
+    assert sub["method"] == "on_restart"
+    assert sub["publishes"] == [
+        {
+            "topic_suffix": "status/ack",
+            "payload": {"cmd": {"kind": "constant", "value": "restart"}},
+        }
+    ]
+
+
+def test_startup_with_multiple_publishes(tmp_path):
+    """Multiple self.publish calls in sequence are allowed in lifecycle
+    handlers — the firmware fires them in source order."""
+    src = """
+from scadable import Controller, on
+
+class BootChatty(Controller):
+    @on.startup
+    def init(self):
+        self.publish("status/boot", {"phase": "starting"})
+        self.publish("status/version", {"v": 1})
+        self.publish("status/ready", {"phase": "ready"})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    publishes = manifest["lifecycle"]["startup"][0]["publishes"]
+    assert len(publishes) == 3
+    assert [p["topic_suffix"] for p in publishes] == [
+        "status/boot",
+        "status/version",
+        "status/ready",
+    ]
+    assert publishes[0]["payload"]["phase"] == {"kind": "constant", "value": "starting"}
+
+
+def test_lifecycle_methods_alongside_interval(tmp_path):
+    """A controller can mix @on.interval (→ schedules[]) with
+    @on.startup (→ lifecycle.startup[]); both lower correctly."""
+    src = """
+from scadable import Controller, on, SECONDS
+
+class Mixed(Controller):
+    @on.startup
+    def init(self):
+        self.publish("status/boot", {"v": 1})
+
+    @on.interval(5, SECONDS)
+    def tick(self):
+        self.publish("data/tick", {"n": counter()})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+
+    schedules = manifest["schedules"]
+    assert len(schedules) == 1
+    assert schedules[0]["id"] == "Mixed.tick"
+    assert schedules[0]["interval_ms"] == 5000
+
+    startup = manifest["lifecycle"]["startup"]
+    assert len(startup) == 1
+    assert startup[0]["method"] == "init"
+    assert startup[0]["publishes"][0]["topic_suffix"] == "status/boot"
+
+
+# ---------------- W8: rejections ------------------------------------
+
+
+def test_on_startup_with_actuate_raises(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class BadBoot(Controller):
+    @on.startup
+    def init(self):
+        self.actuate("relay.on", True)
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected an error for self.actuate in @on.startup"
+    assert "actuate" in result.errors[0]
+
+
+def test_on_startup_with_conditional_raises(tmp_path):
+    """Bodies must be a flat sequence of self.publish calls — `if`/`for`
+    aren't lowerable."""
+    src = """
+from scadable import Controller, on
+
+class BranchyBoot(Controller):
+    @on.startup
+    def init(self):
+        if True:
+            self.publish("status/boot", {"v": 1})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected an error for `if` inside @on.startup body"
+    msg = result.errors[0]
+    # Either name the construct (If) or the rule it violated — both
+    # acceptable as long as the user sees the specific node type.
+    assert "If" in msg or "self.publish" in msg
+
+
+def test_on_message_without_topic_kwarg_raises(tmp_path):
+    """@on.message() with no topic at all → clear refusal naming the
+    missing kwarg."""
+    src = """
+from scadable import Controller, on
+
+class NoTopic(Controller):
+    @on.message()
+    def on_anything(self):
+        self.publish("status/ack", {"v": 1})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected an error for @on.message() with no topic"
+    assert "topic" in result.errors[0]

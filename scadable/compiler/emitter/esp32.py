@@ -95,7 +95,9 @@ class Esp32Emitter(Emitter):
         controllers, memory) is kept so dashboard inspectors that already
         understand the linux manifest don't choke on ESP bundles.
         """
-        schedules = _lower_controllers_to_schedules(controllers, project.controller_files)
+        schedules, lifecycle, mqtt_subscriptions = _lower_controllers(
+            controllers, project.controller_files
+        )
 
         manifest: dict[str, Any] = {
             "project": {
@@ -116,6 +118,8 @@ class Esp32Emitter(Emitter):
             "drivers": [],  # No native binaries on ESP
             "referenced_env_vars": [],  # env_vars not supported on ESP yet
             "schedules": schedules,
+            "lifecycle": lifecycle,
+            "mqtt_subscriptions": mqtt_subscriptions,
         }
         path = output_dir / "manifest.json"
         path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
@@ -143,21 +147,38 @@ class Esp32Emitter(Emitter):
         return bundle
 
 
-# ---------------- @on.interval lowering -----------------------------
+# ---------------- trigger lowering ----------------------------------
+
+# Triggers we currently lower into the manifest. Anything else with an
+# @on.<name> decorator gets refused with a clear message naming the
+# unsupported trigger so the user sees the real reason at compile time
+# (vs. a downstream firmware-side surprise).
+_SUPPORTED_TRIGGERS = {"interval", "startup", "shutdown", "message"}
 
 
-def _lower_controllers_to_schedules(
+def _lower_controllers(
     controllers: list[dict],
     controller_files: list[Path],
-) -> list[dict]:
-    """Walk every controller's source file, find each @on.interval method,
-    extract the (one) self.publish(...) call inside, lower it to a
-    schedule dict matching handlers/schedules.rs::Schedule.
+) -> tuple[list[dict], dict[str, list[dict]], list[dict]]:
+    """Walk every controller's source file and lower its triggers.
+
+    Returns `(schedules, lifecycle, mqtt_subscriptions)`:
+
+    - `schedules[]` — `@on.interval` methods (existing behaviour).
+    - `lifecycle = {"startup": [...], "shutdown": [...]}` — `@on.startup`
+      / `@on.shutdown` methods. Each entry shape:
+      `{controller, method, publishes: [{topic_suffix, payload}, ...]}`.
+    - `mqtt_subscriptions[]` — `@on.message(topic="...")` methods, same
+      `publishes[]` shape plus the `topic_suffix` the firmware should
+      subscribe to.
 
     Raises Esp32UnsupportedError for anything outside the supported
     shape so the user gets a clear refusal at compile time.
     """
     schedules: list[dict] = []
+    lifecycle: dict[str, list[dict]] = {"startup": [], "shutdown": []}
+    mqtt_subscriptions: list[dict] = []
+
     # Re-parse the controller files so we can walk method bodies. The
     # parser already gave us `controllers` (with id, class_name, triggers)
     # but not the method-body AST nodes. Cheap — controller files are
@@ -178,50 +199,112 @@ def _lower_controllers_to_schedules(
             for member in cls.body:
                 if not isinstance(member, ast.FunctionDef):
                     continue
-                interval_ms = _interval_from_decorators(member, source_path)
-                if interval_ms is None:
-                    if _has_any_on_decorator(member) and not _is_interval_decorator(
-                        member
-                    ):
-                        raise Esp32UnsupportedError(
-                            f"{source_path}:{member.lineno}: "
-                            f"@on.{_first_on_decorator_name(member)} not supported on ESP32 "
-                            f"— only @on.interval is. (in {ctrl['class_name']}.{member.name})"
-                        )
+                trigger = _on_decorator_for(member)
+                if trigger is None:
                     continue
-                topic_suffix, payload = _extract_publish_call(member, source_path)
-                schedule_id = f"{ctrl['class_name']}.{member.name}"
-                schedules.append(
+                if trigger not in _SUPPORTED_TRIGGERS:
+                    raise Esp32UnsupportedError(
+                        f"{source_path}:{member.lineno}: "
+                        f"@on.{trigger} not supported on ESP32 yet. "
+                        f"(in {ctrl['class_name']}.{member.name})"
+                    )
+
+                if trigger == "interval":
+                    interval_ms = _interval_from_decorators(member, source_path)
+                    # _interval_from_decorators raises rather than
+                    # returning None when @on.interval is malformed, so
+                    # `interval_ms is None` here only happens if the
+                    # detector logic ever drifts. Defensive: skip.
+                    if interval_ms is None:
+                        continue
+                    topic_suffix, payload = _extract_publish_call(member, source_path)
+                    schedules.append(
+                        {
+                            "id": f"{ctrl['class_name']}.{member.name}",
+                            "interval_ms": interval_ms,
+                            "topic_suffix": topic_suffix,
+                            "payload": payload,
+                        }
+                    )
+                    continue
+
+                # startup / shutdown / message all share the same body
+                # contract: a sequence of self.publish(literal, dict)
+                # calls. The decorator metadata differs per kind.
+                publishes = _extract_publish_calls(member, source_path)
+
+                if trigger in ("startup", "shutdown"):
+                    lifecycle[trigger].append(
+                        {
+                            "controller": ctrl["class_name"],
+                            "method": member.name,
+                            "publishes": publishes,
+                        }
+                    )
+                    continue
+
+                # @on.message(topic="cmd/restart")
+                topic_suffix = _message_topic_from_decorator(member, source_path)
+                mqtt_subscriptions.append(
                     {
-                        "id": schedule_id,
-                        "interval_ms": interval_ms,
                         "topic_suffix": topic_suffix,
-                        "payload": payload,
+                        "controller": ctrl["class_name"],
+                        "method": member.name,
+                        "publishes": publishes,
                     }
                 )
-    return schedules
+
+    return schedules, lifecycle, mqtt_subscriptions
 
 
-def _has_any_on_decorator(method: ast.FunctionDef) -> bool:
-    for dec in method.decorator_list:
-        if _decorator_attr(dec) is not None:
-            return True
-    return False
+def _on_decorator_for(method: ast.FunctionDef) -> str | None:
+    """Return the @on.<name> tag for this method, or None if none.
 
-
-def _is_interval_decorator(method: ast.FunctionDef) -> bool:
-    for dec in method.decorator_list:
-        if _decorator_attr(dec) == "interval":
-            return True
-    return False
-
-
-def _first_on_decorator_name(method: ast.FunctionDef) -> str:
+    A method decorated with @on.startup AND @on.interval would be a
+    user error — but the parser already rejects that combo upstream, so
+    here we just take the first @on decorator we see (matches the v0.3
+    semantics of `_first_on_decorator_name`).
+    """
     for dec in method.decorator_list:
         attr = _decorator_attr(dec)
         if attr is not None:
             return attr
-    return "?"
+    return None
+
+
+def _message_topic_from_decorator(
+    method: ast.FunctionDef, source_path: Path
+) -> str:
+    """Pull the topic= kwarg out of @on.message(topic="...").
+
+    The DSL allows positional or kwarg form (see triggers.py: the
+    decorator signature is `message(topic: str)`), but for ESP we
+    require the explicit `topic=` kwarg so the lowering stays
+    obviously-correct + matches the example in the user docs. A bare
+    @on.message decorator (no args) is also rejected here.
+    """
+    for dec in method.decorator_list:
+        if not isinstance(dec, ast.Call):
+            continue
+        if _decorator_attr(dec) != "message":
+            continue
+        for kw in dec.keywords:
+            if kw.arg == "topic":
+                return _string_literal(kw.value, source_path, "topic")
+        # Tolerate a single positional topic literal so the SDK example
+        # `@on.message("emergency_stop")` keeps working — but be loud
+        # if neither form is present.
+        if len(dec.args) == 1:
+            return _string_literal(dec.args[0], source_path, "topic")
+        raise Esp32UnsupportedError(
+            f"{source_path}:{dec.lineno}: @on.message requires a topic= "
+            f"keyword argument (got {len(dec.args)} positional args, "
+            f"{len(dec.keywords)} kwargs)"
+        )
+    raise Esp32UnsupportedError(
+        f"{source_path}:{method.lineno}: @on.message decorator missing on "
+        f"{method.name} (internal error: lowering reached message branch)"
+    )
 
 
 def _decorator_attr(dec: ast.expr) -> str | None:
@@ -353,6 +436,86 @@ def _extract_publish_call(
         )
     payload = _payload_dict(payload_node, source_path)
     return topic_suffix, payload
+
+
+def _extract_publish_calls(
+    method: ast.FunctionDef, source_path: Path
+) -> list[dict]:
+    """Lower a method body that's allowed to contain N self.publish() calls
+    in sequence (used by lifecycle + mqtt_subscriptions handlers).
+
+    Same restrictions as `_extract_publish_call` apply per-statement —
+    every body statement must be a `self.publish(literal_topic,
+    dict_literal[, quality=...])` Expr — but we accept >1 of them so a
+    boot/shutdown handler can publish several status updates in order.
+
+    A leading docstring is tolerated. Anything else (assignments,
+    conditionals, loops, self.actuate, self.upload, function calls
+    other than self.publish) raises Esp32UnsupportedError naming the
+    offending construct so the user can fix it without grep-spelunking.
+
+    Returns a list of `{topic_suffix, payload}` dicts in source order.
+    """
+    body = list(method.body)
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+
+    if not body:
+        # An empty body (just a docstring or pass) is fine — emits no
+        # publishes. Useful for users who want a side-effect-free
+        # placeholder while wiring the trigger up.
+        return []
+
+    publishes: list[dict] = []
+    for stmt in body:
+        if not isinstance(stmt, ast.Expr):
+            raise Esp32UnsupportedError(
+                f"{source_path}:{stmt.lineno}: only self.publish(...) "
+                f"statements are allowed here (got {type(stmt).__name__})"
+            )
+        if not isinstance(stmt.value, ast.Call):
+            raise Esp32UnsupportedError(
+                f"{source_path}:{stmt.lineno}: only self.publish(...) "
+                f"calls are allowed here"
+            )
+        call = stmt.value
+        if not (
+            isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == "self"
+        ):
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: only `self.<method>(...)` "
+                f"calls are supported"
+            )
+        method_name = call.func.attr
+        if method_name != "publish":
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.{method_name}(...) "
+                f"not supported on ESP32 — only self.publish() is."
+            )
+        if len(call.args) < 2:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.publish requires "
+                f"(topic, payload_dict)"
+            )
+        topic_node, payload_node = call.args[0], call.args[1]
+        topic_suffix = _string_literal(topic_node, source_path, "topic")
+        if topic_suffix.startswith("/"):
+            raise Esp32UnsupportedError(
+                f"{source_path}:{topic_node.lineno}: publish topic must "
+                f"not start with '/' — it gets prepended with "
+                f"`{{project}}/{{gateway}}/`"
+            )
+        payload = _payload_dict(payload_node, source_path)
+        publishes.append({"topic_suffix": topic_suffix, "payload": payload})
+
+    return publishes
 
 
 def _string_literal(node: ast.expr, source_path: Path, what: str) -> str:
