@@ -33,10 +33,12 @@ def test_emitter_classes_match_targets():
     assert isinstance(EMITTERS["rtos"], RtosEmitter)
 
 
-def test_esp32_emitter_raises_target_not_implemented(tmp_path):
-    with pytest.raises(TargetNotImplementedError) as exc:
-        EMITTERS["esp32"].emit_driver_configs([], tmp_path)
-    assert "v0.3" in str(exc.value)
+def test_esp32_emitter_no_devices_no_op(tmp_path):
+    # As of v0.3 the ESP32 emitter is implemented (declarative-only).
+    # emit_driver_configs is a no-op when there are no devices, since
+    # the schedules-only MVP doesn't run native driver subprocesses.
+    paths = EMITTERS["esp32"].emit_driver_configs([], tmp_path)
+    assert paths == []
 
 
 def test_rtos_emitter_raises_target_not_implemented(tmp_path):

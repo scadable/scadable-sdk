@@ -164,7 +164,10 @@ def test_modbus_tcp_on_esp32_rejected():
     assert any("modbus_tcp" in e and "esp32" in e for e in errors)
 
 
-def test_modbus_rtu_on_esp32_accepted():
+def test_modbus_rtu_on_esp32_rejected_in_v03():
+    """v0.3 ESP runtime is schedules-only — no driver subprocesses
+    yet. Protocol declarations on ESP are gated until v0.4 wires the
+    chip-side driver shim."""
     devs = [
         {
             "id": "d",
@@ -173,7 +176,7 @@ def test_modbus_rtu_on_esp32_accepted():
         }
     ]
     errors, _ = validate(devs, [], {}, target="esp32")
-    assert errors == []
+    assert any("modbus_rtu" in e and "esp32" in e for e in errors)
 
 
 def test_float64_on_rtos_rejected():
@@ -201,15 +204,9 @@ def test_uint16_on_rtos_accepted():
 
 
 def test_preview_target_emits_warning():
-    """esp32 + rtos are in preview status — should warn."""
-    devs = [
-        {
-            "id": "d",
-            "connection": {"protocol": "modbus_rtu", "port": "/dev/ttyS0"},
-            "registers": [{"address": 40001, "name": "x", "dtype": "uint16"}],
-        }
-    ]
-    _, warnings = validate(devs, [], {}, target="esp32")
+    """rtos is still in preview status — should warn (no devices to
+    avoid the protocol-gate path that would otherwise add an error)."""
+    _, warnings = validate([], [], {}, target="rtos")
     assert any("preview" in w.lower() for w in warnings)
 
 

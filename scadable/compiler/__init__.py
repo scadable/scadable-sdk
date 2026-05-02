@@ -26,6 +26,7 @@ from ._drivers import (
 )
 from .discover import discover_project
 from .emitter import EMITTERS, emit_bundle, emit_driver_configs, emit_manifest
+from .emitter.esp32 import Esp32UnsupportedError
 from .memory import estimate_memory
 from .parser import parse_controllers, parse_devices
 from .validator import validate
@@ -179,19 +180,28 @@ def compile_project(
             result.errors.append(str(e))
             return result
 
-    # 6. Emit manifest + per-device YAML + (linux only) per-driver TOML
-    manifest_path = emit_manifest(
-        project, devices, controllers, mem, target, out, drivers=result.drivers
-    )
-    emit_driver_configs(devices, out, target=target)
-    # Contract-format configs are a Linux-emitter responsibility today;
-    # esp32/rtos emitters raise at their driver-config step anyway, so
-    # this call is gated the same way.
-    emitter = EMITTERS[target]
-    if hasattr(emitter, "emit_device_configs_contract"):
-        emitter.emit_device_configs_contract(devices, out)
+    # 6. Emit manifest + per-device YAML + (linux only) per-driver TOML.
+    # The ESP32 emitter raises Esp32UnsupportedError when a controller
+    # uses a feature outside the @on.interval + self.publish allowlist;
+    # surface that as a CompileResult error string so users see the
+    # file:line + reason instead of a Python traceback. Other emitters
+    # don't raise this; the catch is a no-op for them.
+    try:
+        manifest_path = emit_manifest(
+            project, devices, controllers, mem, target, out, drivers=result.drivers
+        )
+        emit_driver_configs(devices, out, target=target)
+        # Contract-format configs are a Linux-emitter responsibility today;
+        # esp32/rtos emitters raise at their driver-config step anyway, so
+        # this call is gated the same way.
+        emitter = EMITTERS[target]
+        if hasattr(emitter, "emit_device_configs_contract"):
+            emitter.emit_device_configs_contract(devices, out)
 
-    bundle_path = emit_bundle(out, target=target)
+        bundle_path = emit_bundle(out, target=target)
+    except Esp32UnsupportedError as e:
+        result.errors.append(str(e))
+        return result
 
     result.manifest_path = manifest_path
     result.bundle_path = bundle_path
