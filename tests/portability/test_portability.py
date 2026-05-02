@@ -65,10 +65,10 @@ def test_linux_unbounded_memory():
 # ── esp32 + rtos are preview ─────────────────────────────────────
 
 
-def test_esp32_status_is_connection_only():
-    # gateway-esp MVP ships a runtime that connects + streams logs but the
-    # SDK project-bundle compile path is still pending. See _targets.py.
-    assert TARGETS["esp32"]["status"] == "connection_only"
+def test_esp32_status_is_production():
+    # As of v0.3 the gateway-esp runtime + SDK schedules-only emitter
+    # ship together. Driver protocols still deferred (separate workstream).
+    assert TARGETS["esp32"]["status"] == "production"
 
 
 def test_rtos_status_is_preview():

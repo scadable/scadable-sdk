@@ -61,14 +61,15 @@ TARGETS: dict[str, TargetSpec] = {
     },
     "esp32": {
         "memory_kb": 520,
-        "protocols": frozenset(
-            {
-                "modbus_rtu",
-                "i2c",
-                "spi",
-                "gpio",
-            }
-        ),
+        # v0.3 ESP runtime is declarative-only (`@on.interval` →
+        # schedules executor → MQTT publish). Driver protocols are
+        # deferred — no native binaries on Xtensa, no subprocess
+        # support. Empty protocols set so the validator hard-rejects
+        # any device declaration on this target with a clear message
+        # instead of letting the bundle ship something the chip can't
+        # run. Drivers come back in v0.4 once the gateway has a
+        # protocol shim layer.
+        "protocols": frozenset(),
         "dtypes": frozenset(
             {
                 "uint16",
@@ -79,13 +80,12 @@ TARGETS: dict[str, TargetSpec] = {
                 "bool",
             }
         ),
-        "controller_execution": "micropython_or_codegen",
-        # Bumped from "preview" 2026-05-01: the gateway-esp MVP ships a runtime
-        # that connects, enrolls via EST, and streams logs into the dashboard.
-        # The SDK project-bundle compile path for this target is still pending
-        # (compile_cmd.py raises NotImplementedError); validator behaviour is
-        # unchanged. See plan: ../../../.claude/plans/partitioned-enchanting-lighthouse.md
-        "status": "connection_only",
+        "controller_execution": "schedules_executor",
+        # Bumped from "connection_only" 2026-05-02: the SDK now emits
+        # a real schedules[] manifest the chip's release.rs consumes,
+        # and the chip's executor publishes per the cadence. End-to-end
+        # works for the @on.interval + self.publish path.
+        "status": "production",
     },
     "rtos": {
         "memory_kb": 256,
