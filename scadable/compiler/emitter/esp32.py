@@ -591,16 +591,109 @@ def _extract_publish_calls(method: ast.FunctionDef, source_path: Path) -> list[d
         # placeholder while wiring the trigger up.
         return []
 
-    publishes: list[dict] = []
-    for stmt in body:
-        if not isinstance(stmt, ast.Expr):
+    return _extract_actions(body, source_path)
+
+
+def _extract_actions(stmts: list[ast.stmt], source_path: Path) -> list[dict]:
+    """Lower a list of statements into a publish-action list.
+
+    Each statement is either:
+      - an Expr(Call) — a publish/send_* call → publish entry
+      - an If — recurses into both branches → if entry with then/else
+
+    `elif x: ...` is parsed by Python as `else: [If(test=x, ...)]` so
+    nested ifs in the else branch are how elif lowers naturally — no
+    special-case required.
+    """
+    out: list[dict] = []
+    for stmt in stmts:
+        if isinstance(stmt, ast.If):
+            out.append(_lower_if(stmt, source_path))
+        elif isinstance(stmt, ast.Expr):
+            out.append(_extract_publish_stmt(stmt, source_path))
+        else:
             raise Esp32UnsupportedError(
                 f"{source_path}:{stmt.lineno}: only self.publish/send_*(...) "
-                f"statements are allowed here (got {type(stmt).__name__})"
+                f"and if/elif/else are allowed in controller method bodies "
+                f"(got {type(stmt).__name__})"
             )
-        publishes.append(_extract_publish_stmt(stmt, source_path))
+    return out
 
-    return publishes
+
+def _lower_if(node: ast.If, source_path: Path) -> dict:
+    """`if cond: ... else: ...` → ``{"if": <cond>, "then": [...], "else": [...]}``.
+
+    Both branches are themselves action lists (recursive — supports
+    nested if). Empty else (no `else:` clause in source) lowers to an
+    empty list, which the chip treats as a no-op.
+    """
+    return {
+        "if": _lower_condition(node.test, source_path),
+        "then": _extract_actions(node.body, source_path),
+        "else": _extract_actions(node.orelse, source_path),
+    }
+
+
+def _lower_condition(node: ast.expr, source_path: Path) -> dict:
+    """Lower a Python boolean expression to a Condition descriptor.
+
+    Recognised shapes (everything else is rejected at compile time):
+      - ``a > b`` and friends (`<`, `>=`, `<=`, `==`, `!=`)
+      - ``a and b``, ``a or b``  (BoolOp)
+      - ``not a``                 (UnaryOp)
+      - bare value (literal, message.field, etc.) → Truthy
+
+    Both sides of a comparison must be valid ValueDescriptors (literal,
+    counter(), random(), timestamp_unix_ms(), message_field("x"),
+    or message.x sugar). No expression evaluation — the chip can't
+    compute ``a + b`` because it has no Python interpreter.
+    """
+    # `not x`
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return {"kind": "not", "condition": _lower_condition(node.operand, source_path)}
+
+    # `a and b`, `a or b` (chained: `a and b and c`)
+    if isinstance(node, ast.BoolOp):
+        kind = "and" if isinstance(node.op, ast.And) else "or"
+        return {
+            "kind": kind,
+            "conditions": [_lower_condition(v, source_path) for v in node.values],
+        }
+
+    # `a == b`, `a > b`, etc. Multiple comparators (`a < b < c`) reject
+    # for now — easy to add later as `(a < b) and (b < c)` lowering.
+    if isinstance(node, ast.Compare):
+        if len(node.ops) != 1 or len(node.comparators) != 1:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{node.lineno}: chained comparisons "
+                f"(`a < b < c`) not supported — split into `a < b and b < c`"
+            )
+        op_kind = _COMPARE_OP_NAMES.get(type(node.ops[0]))
+        if op_kind is None:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{node.lineno}: comparison operator "
+                f"{type(node.ops[0]).__name__} not supported "
+                f"(use ==, !=, <, <=, >, >=)"
+            )
+        return {
+            "kind": "compare",
+            "left": _value_descriptor(node.left, source_path),
+            "op": op_kind,
+            "right": _value_descriptor(node.comparators[0], source_path),
+        }
+
+    # Bare value → Truthy. Lets users write `if message.is_alarm:` etc.
+    return {"kind": "truthy", "value": _value_descriptor(node, source_path)}
+
+
+_COMPARE_OP_NAMES: dict[type, str] = {
+    ast.Eq: "eq",
+    ast.NotEq: "ne",
+    ast.Lt: "lt",
+    ast.LtE: "lte",
+    ast.Gt: "gt",
+    ast.GtE: "gte",
+}
 
 
 def _string_literal(node: ast.expr, source_path: Path, what: str) -> str:
