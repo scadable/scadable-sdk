@@ -51,7 +51,18 @@ class Esp32UnsupportedError(Exception):
 # Allowed shapes inside a `self.publish(topic, dict_literal[, quality=...])`
 # dict literal value. Each entry maps to a ValueDescriptor variant on
 # the chip side (handlers/schedules.rs::ValueDescriptor).
-_PAYLOAD_VALUE_KINDS = {"constant", "counter", "timestamp_unix_ms", "random", "message_field"}
+_PAYLOAD_VALUE_KINDS = {
+    "constant",
+    "counter",
+    "timestamp_unix_ms",
+    "random",
+    "message_field",
+    "state",
+}
+
+# `self.state.<op>(...)` shapes the chip understands. Each maps to a
+# `StateOp` variant in `gateway-esp/src/handlers/release.rs`.
+_STATE_WRITE_OPS = {"set", "increment", "delete", "clear"}
 
 
 class Esp32Emitter(Emitter):
@@ -493,6 +504,8 @@ def _extract_publish_stmt(stmt: ast.stmt, source_path: Path) -> dict:
         → {topic_suffix: "event/<name>", payload, channel: "events"}
       - self.send_alert(name, payload_dict)
         → {topic_suffix: "alert/<name>", payload, channel: "alerts"}
+      - self.state.set("k", v) / .increment("k"[, n]) / .delete("k") / .clear()
+        → {op, key, value?}                          (NW-E)
 
     Channel verbs reject names containing '/' so the user can't
     accidentally inject topic levels — pick a `name`, not a `topic`.
@@ -501,10 +514,18 @@ def _extract_publish_stmt(stmt: ast.stmt, source_path: Path) -> dict:
     if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)):
         raise Esp32UnsupportedError(
             f"{source_path}:{getattr(stmt, 'lineno', '?')}: only a "
-            f"self.publish/send_data/send_event/send_alert(...) "
+            f"self.publish/send_data/send_event/send_alert/self.state(...) "
             f"expression is supported"
         )
     call = stmt.value
+
+    # `self.state.<op>(...)` — chained attribute, handled before the
+    # generic `self.<method>` check below. Returns a State action dict
+    # that the chip lowers to a `PublishAction::State` variant.
+    state_action = _try_extract_state_call(call, source_path)
+    if state_action is not None:
+        return state_action
+
     if not (
         isinstance(call.func, ast.Attribute)
         and isinstance(call.func.value, ast.Name)
@@ -702,6 +723,86 @@ def _string_literal(node: ast.expr, source_path: Path, what: str) -> str:
     raise Esp32UnsupportedError(f"{source_path}:{node.lineno}: {what} must be a string literal")
 
 
+def _try_extract_state_call(call: ast.Call, source_path: Path) -> dict | None:
+    """Recognise `self.state.<op>(...)` calls and lower to a State action.
+
+    Returns ``None`` when the call isn't a state call (caller continues
+    with the regular publish-call path). Raises ``Esp32UnsupportedError``
+    when the call IS a state call but the shape is wrong (unknown op,
+    bad arity, non-literal key) — fail loud, never silently demote to
+    a publish.
+
+    Wire shape (matches `gateway-esp/.../release.rs::StateAction`):
+      ``{"op": "set"|"increment"|"delete"|"clear", "key": "...", "value": <descriptor>?}``
+    """
+    func = call.func
+    if not (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Attribute)
+        and isinstance(func.value.value, ast.Name)
+        and func.value.value.id == "self"
+        and func.value.attr == "state"
+    ):
+        return None
+
+    op = func.attr
+    if op not in _STATE_WRITE_OPS:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.lineno}: self.state.{op}(...) not supported "
+            f"on ESP32 — supported ops: {', '.join(sorted(_STATE_WRITE_OPS))}"
+        )
+
+    if call.keywords:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.lineno}: self.state.{op}() takes positional args only"
+        )
+
+    if op == "clear":
+        if call.args:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.state.clear() takes no arguments"
+            )
+        return {"op": "clear", "key": ""}
+
+    # set/increment/delete all require a string-literal key as arg 0.
+    if not call.args:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.lineno}: self.state.{op}() requires a key argument"
+        )
+    key = _string_literal(call.args[0], source_path, f"self.state.{op} key")
+    if not key:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.args[0].lineno}: self.state.{op} key must be non-empty"
+        )
+
+    if op == "delete":
+        if len(call.args) != 1:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.state.delete(key) takes exactly 1 argument"
+            )
+        return {"op": "delete", "key": key}
+
+    if op == "set":
+        if len(call.args) != 2:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.state.set(key, value) takes exactly 2 arguments"
+            )
+        value_desc = _value_descriptor(call.args[1], source_path)
+        return {"op": "set", "key": key, "value": value_desc}
+
+    # op == "increment"
+    if len(call.args) == 1:
+        # No delta given — chip defaults to 1. Omit the value field so
+        # the wire shape stays minimal (chip falls back to 1.0 on None).
+        return {"op": "increment", "key": key}
+    if len(call.args) != 2:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.lineno}: self.state.increment(key[, by]) takes 1 or 2 arguments"
+        )
+    delta_desc = _value_descriptor(call.args[1], source_path)
+    return {"op": "increment", "key": key, "value": delta_desc}
+
+
 def _payload_dict(node: ast.expr, source_path: Path) -> dict:
     """The payload dict literal: `{"name": <expr>, ...}` where each
     value is one of the supported descriptor shapes.
@@ -777,6 +878,44 @@ def _value_descriptor(node: ast.expr, source_path: Path) -> dict:
         and node.attr
     ):
         return {"kind": "message_field", "path": node.attr}
+
+    # `self.state.<key>` — read a value from the per-gateway local state
+    # store. Pythonic sugar for `self.state.get("<key>")`; the underlying
+    # method form is also accepted (handled by _try_extract_state_get
+    # below). Resolves to JSON `null` when the key is absent, mirroring
+    # how `message_field` behaves outside message dispatch.
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Attribute)
+        and isinstance(node.value.value, ast.Name)
+        and node.value.value.id == "self"
+        and node.value.attr == "state"
+        and isinstance(node.attr, str)
+        and node.attr
+    ):
+        return {"kind": "state", "key": node.attr}
+
+    # `self.state.get("key")` — explicit method form. Same lowering as
+    # the `self.state.<key>` attribute sugar above. We don't validate
+    # arity for `default=` — the chip always returns null for missing
+    # keys, so a Python-side default never reaches it. Future SDK
+    # versions can wrap this to honor `default=` at the SDK layer.
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and isinstance(node.func.value, ast.Attribute)
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "self"
+        and node.func.value.attr == "state"
+        and len(node.args) == 1
+    ):
+        key = _string_literal(node.args[0], source_path, "self.state.get key")
+        if not key:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{node.lineno}: self.state.get key must be non-empty"
+            )
+        return {"kind": "state", "key": key}
 
     if isinstance(node, ast.Dict):
         d: dict = {}
