@@ -860,3 +860,185 @@ class NoTopic(Controller):
     result = _compile_esp(tmp_path, src)
     assert result.errors, "expected an error for @on.message() with no topic"
     assert "topic" in result.errors[0]
+
+
+# ---------------- self.state (NW-E) ---------------------------------
+
+
+def test_state_set_in_on_startup_lowers_to_state_action(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class CounterBoot(Controller):
+    @on.startup
+    def init(self):
+        self.state.set("count", 0)
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["lifecycle"]["startup"][0]["publishes"]
+    assert actions == [{"op": "set", "key": "count", "value": {"kind": "constant", "value": 0}}]
+
+
+def test_state_increment_default_delta_omits_value(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Hits(Controller):
+    @on.message(command="hit")
+    def on_hit(self):
+        self.state.increment("count")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["mqtt_subscriptions"][0]["publishes"]
+    assert actions == [{"op": "increment", "key": "count"}]
+
+
+def test_state_increment_explicit_delta_lowers_value(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Hits(Controller):
+    @on.message(command="hit")
+    def on_hit(self):
+        self.state.increment("count", 5)
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["mqtt_subscriptions"][0]["publishes"]
+    assert actions == [
+        {"op": "increment", "key": "count", "value": {"kind": "constant", "value": 5}}
+    ]
+
+
+def test_state_delete_lowers(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Reset(Controller):
+    @on.message(command="reset")
+    def clear_one(self):
+        self.state.delete("count")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["mqtt_subscriptions"][0]["publishes"]
+    assert actions == [{"op": "delete", "key": "count"}]
+
+
+def test_state_clear_lowers(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class WipeAll(Controller):
+    @on.message(command="wipe")
+    def wipe(self):
+        self.state.clear()
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["mqtt_subscriptions"][0]["publishes"]
+    assert actions == [{"op": "clear", "key": ""}]
+
+
+def test_state_attr_read_in_payload_lowers_to_state_descriptor(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Echo(Controller):
+    @on.message(command="ping")
+    def reply(self):
+        self.send_event("count", {"n": self.state.count})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    payload = manifest["mqtt_subscriptions"][0]["publishes"][0]["payload"]
+    assert payload == {"n": {"kind": "state", "key": "count"}}
+
+
+def test_state_get_method_form_lowers_to_state_descriptor(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Echo(Controller):
+    @on.message(command="ping")
+    def reply(self):
+        self.send_event("count", {"n": self.state.get("count")})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    payload = manifest["mqtt_subscriptions"][0]["publishes"][0]["payload"]
+    assert payload == {"n": {"kind": "state", "key": "count"}}
+
+
+def test_state_set_followed_by_publish_in_lifecycle(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Init(Controller):
+    @on.startup
+    def boot(self):
+        self.state.set("boot_count", 0)
+        self.state.increment("boot_count")
+        self.send_event("ready", {"boots": self.state.boot_count})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["lifecycle"]["startup"][0]["publishes"]
+    assert len(actions) == 3
+    assert actions[0]["op"] == "set"
+    assert actions[1]["op"] == "increment"
+    # Third action is a publish — sanity-check the topic + payload binding.
+    assert actions[2]["topic_suffix"] == "event/ready"
+    assert actions[2]["payload"] == {"boots": {"kind": "state", "key": "boot_count"}}
+
+
+def test_state_unknown_op_rejected_with_clear_error(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Bad(Controller):
+    @on.startup
+    def boot(self):
+        self.state.frobnicate("count")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected an error for unknown self.state op"
+    assert "frobnicate" in result.errors[0]
+
+
+def test_state_set_requires_two_args(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Bad(Controller):
+    @on.startup
+    def boot(self):
+        self.state.set("count")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected an error for self.state.set with only 1 arg"
+    assert "2 arguments" in result.errors[0]
+
+
+def test_state_clear_takes_no_args(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Bad(Controller):
+    @on.startup
+    def boot(self):
+        self.state.clear("count")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected an error for self.state.clear with args"
+    assert "no arguments" in result.errors[0]

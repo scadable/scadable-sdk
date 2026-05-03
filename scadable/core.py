@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import _registry
+from . import storage as _storage
 from .registers import Characteristic, Field, Pin, Register
 
 # All register-like types that the metaclass should intercept
@@ -112,15 +113,33 @@ class Controller:
 
     Available methods inside a controller:
       self.publish(topic, data)        — send telemetry via MQTT
+      self.send_data/event/alert(name, data) — channel-aware publish verbs
       self.upload(route, blob)         — upload file to cloud storage
       self.alert(severity, msg)        — send notification
       self.actuate(device.field, value) — write to a device register
       self.capture(device)             — trigger a capture action on a device
+
+    Available attributes:
+      self.state — per-gateway persistent key-value store. Read with
+        self.state.get("k") or self.state.<k>; write with
+        self.state.set/.increment/.delete/.clear. The chip executes
+        state ops at apply time — see scadable/storage.py for the
+        sandbox semantics that apply when running locally.
     """
+
+    # Class-level shared sandbox so `self.state` is available without
+    # users calling super().__init__(). The chip side has a per-gateway
+    # store; this Python-side StateStore is just the local sandbox the
+    # SDK exposes for `scadable verify` + laptop testing. See
+    # scadable/storage.py for why the in-process dict is fine here.
+    state: _storage.StateStore = _storage.StateStore()
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         _registry.register_controller(cls)
+        # Each controller subclass gets its own sandbox so unit tests
+        # don't bleed state across classes when run in-process.
+        cls.state = _storage.StateStore()
 
     # Quality flag values for self.publish(). Industrial-standard data
     # quality tagging — downstream dashboards can color-code or filter.

@@ -34,7 +34,7 @@ protocols:
 
 storage:
   data: preview      # DataStore — sqlite-backed, deferred (gateway-linux#1)
-  state: preview     # StateStore — Redis-backed, deferred (gateway-linux#2)
+  state: production  # StateStore — NVS-backed on ESP32 (NW-E, v0.3.8 firmware). Linux backend deferred (gateway-linux#2).
   files: preview     # FileStore — local + cloud upload, deferred (gateway-linux#3)
 
 controllers:

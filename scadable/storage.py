@@ -1,25 +1,39 @@
-"""Local storage type factories — PREVIEW.
+"""Local storage type factories.
 
-The storage primitives in this module are declared but **not
-implemented in the gateway runtime yet**. Calling any method on
-``data()``, ``files()``, or ``state()`` raises ``PreviewError`` so
-your data isn't silently dropped on the floor.
+Three storage types:
+  data   — time-series ring buffer (oldest dropped when full) — PREVIEW
+  files  — managed file storage (auto-cleanup by TTL)         — PREVIEW
+  state  — persistent key-value (survives reboots)            — PRODUCTION on ESP32
 
-Three storage types (planned):
-  data  — time-series ring buffer (oldest dropped when full)
-  files — managed file storage (auto-cleanup by TTL)
-  state — persistent key-value (survives reboots)
+``self.state`` (NW-E)
+---------------------
 
-Tracked in:
-  https://github.com/scadable/gateway-linux/issues/1  (sqlite DataStore)
-  https://github.com/scadable/gateway-linux/issues/2  (Redis StateStore)
-  https://github.com/scadable/gateway-linux/issues/3  (FileStore + cloud upload)
+In a controller, ``self.state`` is the recommended entry point::
 
-Until the gateway-side implementations land, ``scadable verify`` /
-``scadable compile`` will warn when any of these factories are
-imported, and runtime use raises immediately. This is by design:
-silent data loss is the worst possible failure mode for a
-sensor-data product.
+    class MotionCounter(Controller):
+        @on.startup
+        def init(self):
+            self.state.set("count", 0)
+
+        @on.message(command="motion_detected")
+        def hit(self):
+            self.state.increment("count")
+
+The chip-side runtime (``gateway-esp/.../handlers/state.rs``) is the
+production backing store: per-gateway, NVS-persisted, debounced flush
+to flash. The SDK's compiler recognises ``self.state.<op>(...)`` calls
+statically and lowers them into ``StateAction`` entries in the manifest
+the chip applies. No Python runs on the chip.
+
+The classes in this module also work as a **local Python sandbox**:
+in-memory only, no NVS, no cross-process sharing. Useful for
+``scadable verify`` and unit-testing controller logic on a laptop
+before flashing. Anything written to the sandbox is gone when the
+process exits — the chip is the source of truth in production.
+
+``data`` and ``files`` still raise ``PreviewError`` — those backends
+haven't shipped on either gateway. Linux ``state`` is also still
+in-memory only (gateway-linux#2 tracks the Redis-backed runtime).
 """
 
 from __future__ import annotations
@@ -100,25 +114,53 @@ class FileStore:
 
 
 class StateStore:
-    """Persistent key-value store that survives reboots (preview)."""
+    """Persistent key-value store that survives reboots.
 
-    def __init__(self, max_size: str):
+    ESP32 (production): backed by NVS in
+    ``gateway-esp/.../handlers/state.rs``. Reads + writes resolve at
+    apply time against the chip's in-memory cache, debounced-flushed
+    to flash at most once per second.
+
+    This Python class is the **local sandbox**. The compiler recognises
+    ``self.state.set("k", v)`` etc. as AST patterns and emits manifest
+    entries the chip executes — your Python doesn't run on the chip.
+    Use these methods directly only when stepping through controller
+    logic on a laptop; the in-memory dict here vanishes on process
+    exit.
+    """
+
+    def __init__(self, max_size: str = ""):
+        # max_size accepted for forward-compat with future quota knobs;
+        # ignored today (NVS partition cap is the real limit on chip).
         self.max_size = max_size
+        self._store: dict[str, Any] = {}
 
     def get(self, key: str, default: Any = None) -> Any:
-        raise _preview("state", 2, "get")
+        return self._store.get(key, default)
 
     def set(self, key: str, value: Any) -> None:
-        raise _preview("state", 2, "set")
+        self._store[key] = value
 
     def delete(self, key: str) -> None:
-        raise _preview("state", 2, "delete")
+        self._store.pop(key, None)
 
     def increment(self, key: str, by: int = 1) -> int:
-        raise _preview("state", 2, "increment")
+        cur = self._store.get(key, 0)
+        try:
+            cur_n = float(cur)
+        except (TypeError, ValueError):
+            cur_n = 0.0
+        nxt = cur_n + by
+        # Match the chip behavior: stay an int when both sides round-
+        # trip integral. Otherwise keep the float.
+        if nxt == int(nxt):
+            self._store[key] = int(nxt)
+            return int(nxt)
+        self._store[key] = nxt
+        return nxt  # type: ignore[return-value]
 
     def clear(self) -> None:
-        raise _preview("state", 2, "clear")
+        self._store.clear()
 
 
 def data(max_size: str) -> DataStore:
@@ -129,5 +171,5 @@ def files(max_size: str, *, ttl: str = "") -> FileStore:
     return FileStore(max_size, ttl=ttl)
 
 
-def state(max_size: str) -> StateStore:
+def state(max_size: str = "") -> StateStore:
     return StateStore(max_size)

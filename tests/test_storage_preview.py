@@ -51,17 +51,28 @@ def test_filestore_methods_raise_preview_error():
         f.delete("/img/cap.png")
 
 
-def test_statestore_methods_raise_preview_error():
+def test_statestore_methods_are_in_memory_now():
+    """StateStore moved from preview → production in v0.4 (NW-E).
+
+    Chip-side runtime is NVS-backed (gateway-esp/.../handlers/state.rs).
+    The Python class is the local sandbox — in-memory only — so methods
+    must succeed without raising PreviewError. Pinned here so a future
+    refactor doesn't accidentally re-introduce the raise.
+    """
     s = state("8MB")
     assert isinstance(s, StateStore)
-    with pytest.raises(PreviewError, match="state"):
-        s.get("counter")
-    with pytest.raises(PreviewError, match="state"):
-        s.set("counter", 1)
-    with pytest.raises(PreviewError, match="state"):
-        s.increment("counter")
-    with pytest.raises(PreviewError, match="state"):
-        s.clear()
+    assert s.get("counter") is None
+    s.set("counter", 1)
+    assert s.get("counter") == 1
+    n = s.increment("counter")
+    assert n == 2
+    assert s.get("counter") == 2
+    s.delete("counter")
+    assert s.get("counter") is None
+    s.set("a", 1)
+    s.set("b", 2)
+    s.clear()
+    assert s.get("a") is None and s.get("b") is None
 
 
 def test_preview_error_subclasses_notimplementederror():
