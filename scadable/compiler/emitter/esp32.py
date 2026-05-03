@@ -51,7 +51,7 @@ class Esp32UnsupportedError(Exception):
 # Allowed shapes inside a `self.publish(topic, dict_literal[, quality=...])`
 # dict literal value. Each entry maps to a ValueDescriptor variant on
 # the chip side (handlers/schedules.rs::ValueDescriptor).
-_PAYLOAD_VALUE_KINDS = {"constant", "counter", "timestamp_unix_ms", "random"}
+_PAYLOAD_VALUE_KINDS = {"constant", "counter", "timestamp_unix_ms", "random", "message_field"}
 
 
 class Esp32Emitter(Emitter):
@@ -71,8 +71,8 @@ class Esp32Emitter(Emitter):
             # into output_dir as a marker file so the bundle inspector
             # can flag it.
             (output_dir / "esp32_unsupported_devices.txt").write_text(
-                "ESP32 emitter received {} device(s) but declarative-only MVP "
-                "ignores them. Driver protocols come in v0.4.\n".format(len(devices))
+                f"ESP32 emitter received {len(devices)} device(s) but declarative-only MVP "
+                "ignores them. Driver protocols come in v0.4.\n"
             )
         return []
 
@@ -272,9 +272,7 @@ def _on_decorator_for(method: ast.FunctionDef) -> str | None:
     return None
 
 
-def _message_topic_from_decorator(
-    method: ast.FunctionDef, source_path: Path
-) -> str:
+def _message_topic_from_decorator(method: ast.FunctionDef, source_path: Path) -> str:
     """Pull the topic= kwarg out of @on.message(topic="...").
 
     The DSL allows positional or kwarg form (see triggers.py: the
@@ -311,11 +309,7 @@ def _decorator_attr(dec: ast.expr) -> str | None:
     """If `dec` is `@on.<name>` or `@on.<name>(...)`, return <name>."""
     if isinstance(dec, ast.Call):
         dec = dec.func
-    if (
-        isinstance(dec, ast.Attribute)
-        and isinstance(dec.value, ast.Name)
-        and dec.value.id == "on"
-    ):
+    if isinstance(dec, ast.Attribute) and isinstance(dec.value, ast.Name) and dec.value.id == "on":
         return dec.attr
     return None
 
@@ -332,9 +326,7 @@ _TIME_UNIT_MS = {
 }
 
 
-def _interval_from_decorators(
-    method: ast.FunctionDef, source_path: Path
-) -> int | None:
+def _interval_from_decorators(method: ast.FunctionDef, source_path: Path) -> int | None:
     """Return interval_ms if this method has @on.interval(value, UNIT)."""
     for dec in method.decorator_list:
         if not isinstance(dec, ast.Call):
@@ -380,9 +372,7 @@ def _const_strict(node: ast.expr, source_path: Path) -> Any:
     )
 
 
-def _extract_publish_call(
-    method: ast.FunctionDef, source_path: Path
-) -> tuple[str, dict]:
+def _extract_publish_call(method: ast.FunctionDef, source_path: Path) -> tuple[str, dict]:
     """The method body must be exactly one
     `self.publish(topic_literal, payload_dict[, quality=...])`.
 
@@ -438,9 +428,7 @@ def _extract_publish_call(
     return topic_suffix, payload
 
 
-def _extract_publish_calls(
-    method: ast.FunctionDef, source_path: Path
-) -> list[dict]:
+def _extract_publish_calls(method: ast.FunctionDef, source_path: Path) -> list[dict]:
     """Lower a method body that's allowed to contain N self.publish() calls
     in sequence (used by lifecycle + mqtt_subscriptions handlers).
 
@@ -480,8 +468,7 @@ def _extract_publish_calls(
             )
         if not isinstance(stmt.value, ast.Call):
             raise Esp32UnsupportedError(
-                f"{source_path}:{stmt.lineno}: only self.publish(...) "
-                f"calls are allowed here"
+                f"{source_path}:{stmt.lineno}: only self.publish(...) calls are allowed here"
             )
         call = stmt.value
         if not (
@@ -490,8 +477,7 @@ def _extract_publish_calls(
             and call.func.value.id == "self"
         ):
             raise Esp32UnsupportedError(
-                f"{source_path}:{call.lineno}: only `self.<method>(...)` "
-                f"calls are supported"
+                f"{source_path}:{call.lineno}: only `self.<method>(...)` calls are supported"
             )
         method_name = call.func.attr
         if method_name != "publish":
@@ -501,8 +487,7 @@ def _extract_publish_calls(
             )
         if len(call.args) < 2:
             raise Esp32UnsupportedError(
-                f"{source_path}:{call.lineno}: self.publish requires "
-                f"(topic, payload_dict)"
+                f"{source_path}:{call.lineno}: self.publish requires (topic, payload_dict)"
             )
         topic_node, payload_node = call.args[0], call.args[1]
         topic_suffix = _string_literal(topic_node, source_path, "topic")
@@ -521,9 +506,7 @@ def _extract_publish_calls(
 def _string_literal(node: ast.expr, source_path: Path, what: str) -> str:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
-    raise Esp32UnsupportedError(
-        f"{source_path}:{node.lineno}: {what} must be a string literal"
-    )
+    raise Esp32UnsupportedError(f"{source_path}:{node.lineno}: {what} must be a string literal")
 
 
 def _payload_dict(node: ast.expr, source_path: Path) -> dict:
@@ -553,6 +536,7 @@ def _value_descriptor(node: ast.expr, source_path: Path) -> dict:
       - `random(min, max)` (special name) → {"kind": "random", "min": ..., "max": ...}
       - `counter()` → {"kind": "counter"}
       - `timestamp_unix_ms()` → {"kind": "timestamp_unix_ms"}
+      - `message_field("path")` → {"kind": "message_field", "path": "..."}
       - explicit dict `{"kind": "...", ...}` → passed through after validation
 
     Anything else (variables, complex expressions, function calls with
@@ -575,6 +559,19 @@ def _value_descriptor(node: ast.expr, source_path: Path) -> dict:
                     f"{source_path}:{node.lineno}: random(min, max) requires numeric literals"
                 )
             return {"kind": "random", "min": float(mn), "max": float(mx)}
+        if fn == "message_field" and len(node.args) == 1 and not node.keywords:
+            # message_field("path") — only meaningful inside @on.message
+            # publishes. Top-level field name only; no nested-path syntax
+            # yet. Outside of message dispatch the chip resolves this to
+            # JSON null, so it's harmless if used in @on.interval too —
+            # but we don't validate that context here (the chip's the
+            # source of truth on resolution semantics).
+            path = _const_strict(node.args[0], source_path)
+            if not isinstance(path, str) or not path:
+                raise Esp32UnsupportedError(
+                    f"{source_path}:{node.lineno}: message_field() requires a non-empty string literal"
+                )
+            return {"kind": "message_field", "path": path}
 
     if isinstance(node, ast.Dict):
         d: dict = {}

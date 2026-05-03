@@ -11,10 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from scadable.compiler import compile_project
-from scadable.compiler.emitter.esp32 import Esp32UnsupportedError
 
 
 def _write_project(tmp_path: Path, controller_src: str) -> Path:
@@ -22,9 +19,7 @@ def _write_project(tmp_path: Path, controller_src: str) -> Path:
     proj = tmp_path / "demo"
     proj.mkdir()
     # Project metadata picked up by discover_project — minimal shape.
-    (proj / "scadable.toml").write_text(
-        '[project]\nname = "esp-heartbeat"\nversion = "1.0.0"\n'
-    )
+    (proj / "scadable.toml").write_text('[project]\nname = "esp-heartbeat"\nversion = "1.0.0"\n')
     controllers_dir = proj / "controllers"
     controllers_dir.mkdir()
     (controllers_dir / "__init__.py").write_text("")
@@ -59,9 +54,7 @@ class HeartbeatDemo(Controller):
     assert s["id"] == "HeartbeatDemo.emit"
     assert s["interval_ms"] == 5000
     assert s["topic_suffix"] == "data/temperature"
-    assert s["payload"] == {
-        "value": {"kind": "random", "min": 20.0, "max": 30.0}
-    }
+    assert s["payload"] == {"value": {"kind": "random", "min": 20.0, "max": 30.0}}
 
 
 def test_milliseconds_unit_lowers_to_ms(tmp_path):
@@ -287,9 +280,7 @@ class ShutdownDemo(Controller):
     assert entry["controller"] == "ShutdownDemo"
     assert entry["method"] == "teardown"
     assert entry["publishes"][0]["topic_suffix"] == "status/halt"
-    assert entry["publishes"][0]["payload"] == {
-        "reason": {"kind": "constant", "value": "graceful"}
-    }
+    assert entry["publishes"][0]["payload"] == {"reason": {"kind": "constant", "value": "graceful"}}
     assert manifest["lifecycle"]["startup"] == []
 
 
@@ -317,6 +308,50 @@ class CmdDemo(Controller):
             "payload": {"cmd": {"kind": "constant", "value": "restart"}},
         }
     ]
+
+
+def test_on_message_with_message_field_binding(tmp_path):
+    """`message_field("path")` in an @on.message publish lowers to a
+    MessageField ValueDescriptor that the chip resolves against the
+    parsed inbound JSON payload at dispatch time."""
+    src = """
+from scadable import Controller, on
+
+class Switch(Controller):
+    @on.message(topic="cmd/setpoint")
+    def on_setpoint(self):
+        self.publish("events/setpoint_ack", {
+            "received": message_field("value"),
+            "unit": message_field("unit"),
+        })
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    subs = manifest["mqtt_subscriptions"]
+    assert len(subs) == 1
+    pub = subs[0]["publishes"][0]
+    assert pub["topic_suffix"] == "events/setpoint_ack"
+    assert pub["payload"] == {
+        "received": {"kind": "message_field", "path": "value"},
+        "unit": {"kind": "message_field", "path": "unit"},
+    }
+
+
+def test_message_field_requires_string_literal(tmp_path):
+    """`message_field()` with a non-string or missing arg is rejected at
+    compile time so the user gets a clean error rather than a chip-side
+    parse failure later."""
+    src = """
+from scadable import Controller, on
+
+class BadField(Controller):
+    @on.message(topic="cmd/setpoint")
+    def on_setpoint(self):
+        self.publish("events/ack", {"x": message_field()})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected compile error for message_field() with no args"
 
 
 def test_startup_with_multiple_publishes(tmp_path):
