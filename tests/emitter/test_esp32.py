@@ -437,6 +437,92 @@ class Legacy(Controller):
     assert sub["command"] == "restart"
 
 
+def test_send_data_lowers_to_data_topic_with_channel(tmp_path):
+    """v0.4: self.send_data("temp", {...}) → topic data/temp + channel=data.
+    User picks a name; SDK derives the topic + tags the channel."""
+    src = """
+from scadable import Controller, on, SECONDS
+
+class Telemetry(Controller):
+    @on.interval(5, SECONDS)
+    def emit(self):
+        self.send_data("temperature", {"value": random(20, 30)})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    s = json.loads(result.manifest_path.read_text())["schedules"][0]
+    assert s["topic_suffix"] == "data/temperature"
+    assert s["payload"]["value"] == {"kind": "random", "min": 20.0, "max": 30.0}
+
+
+def test_send_event_lowers_to_event_topic_with_channel(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Door(Controller):
+    @on.startup
+    def opened(self):
+        self.send_event("door_opened", {"who": "RFID-42"})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    entry = json.loads(result.manifest_path.read_text())["lifecycle"]["startup"][0]
+    pub = entry["publishes"][0]
+    assert pub["topic_suffix"] == "event/door_opened"
+    assert pub["channel"] == "events"
+
+
+def test_send_alert_lowers_to_alert_topic_with_channel(tmp_path):
+    src = """
+from scadable import Controller, on, SECONDS
+
+class Battery(Controller):
+    @on.interval(60, SECONDS)
+    def check(self):
+        self.send_alert("low_battery", {"voltage": 2.7})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    s = json.loads(result.manifest_path.read_text())["schedules"][0]
+    assert s["topic_suffix"] == "alert/low_battery"
+    assert s["payload"]["voltage"] == {"kind": "constant", "value": 2.7}
+
+
+def test_send_verb_rejects_slash_in_name(tmp_path):
+    """User picks a name, not a topic — slashes would create unintended
+    sub-topics. Caught at compile time so the manifest stays clean."""
+    src = """
+from scadable import Controller, on, SECONDS
+
+class BadName(Controller):
+    @on.interval(5, SECONDS)
+    def emit(self):
+        self.send_data("nested/path", {"v": 1})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected compile error for slash in send_data name"
+
+
+def test_legacy_publish_still_works_no_channel_field(tmp_path):
+    """Backwards compat: self.publish("topic", payload) is unchanged.
+    No `channel` field — chip + cloud should treat absent channel as
+    `data` for routing decisions, but the manifest preserves the user's
+    intent (raw publish, no channel-tagging)."""
+    src = """
+from scadable import Controller, on, SECONDS
+
+class Legacy(Controller):
+    @on.interval(5, SECONDS)
+    def emit(self):
+        self.publish("data/raw", {"v": 1})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    s = json.loads(result.manifest_path.read_text())["schedules"][0]
+    assert s["topic_suffix"] == "data/raw"
+    assert "channel" not in s  # legacy path doesn't tag channel
+
+
 def test_message_attribute_access_lowers_like_message_field(tmp_path):
     """message.value is sugar for message_field("value"). Mixed use in
     the same payload should produce identical descriptors."""

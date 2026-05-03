@@ -217,15 +217,16 @@ def _lower_controllers(
                     # detector logic ever drifts. Defensive: skip.
                     if interval_ms is None:
                         continue
-                    topic_suffix, payload = _extract_publish_call(member, source_path)
-                    schedules.append(
-                        {
-                            "id": f"{ctrl['class_name']}.{member.name}",
-                            "interval_ms": interval_ms,
-                            "topic_suffix": topic_suffix,
-                            "payload": payload,
-                        }
-                    )
+                    publish_entry = _extract_publish_single(member, source_path)
+                    schedule_entry: dict[str, Any] = {
+                        "id": f"{ctrl['class_name']}.{member.name}",
+                        "interval_ms": interval_ms,
+                        "topic_suffix": publish_entry["topic_suffix"],
+                        "payload": publish_entry["payload"],
+                    }
+                    if "channel" in publish_entry:
+                        schedule_entry["channel"] = publish_entry["channel"]
+                    schedules.append(schedule_entry)
                     continue
 
                 # startup / shutdown / message all share the same body
@@ -437,12 +438,11 @@ def _const_strict(node: ast.expr, source_path: Path) -> Any:
     )
 
 
-def _extract_publish_call(method: ast.FunctionDef, source_path: Path) -> tuple[str, dict]:
-    """The method body must be exactly one
-    `self.publish(topic_literal, payload_dict[, quality=...])`.
-
-    Anything else (multiple statements, conditionals, .actuate, etc.)
-    is refused. Return (topic_suffix, payload_descriptor_dict).
+def _extract_publish_single(method: ast.FunctionDef, source_path: Path) -> dict:
+    """Body must be exactly one publish/send_* call. Returns the full
+    entry dict (topic_suffix + payload + optional channel) — preserves
+    the channel tag from send_data/send_event/send_alert verbs through
+    to the schedule manifest entry.
     """
     body = list(method.body)
     # Permit a leading docstring then exactly one Expr(Call) statement.
@@ -456,12 +456,53 @@ def _extract_publish_call(method: ast.FunctionDef, source_path: Path) -> tuple[s
     if len(body) != 1:
         raise Esp32UnsupportedError(
             f"{source_path}:{method.lineno}: ESP32 controller methods must contain "
-            f"exactly one self.publish(...) call (got {len(body)} statements)"
+            f"exactly one self.publish/send_data/send_event/send_alert(...) call "
+            f"(got {len(body)} statements)"
         )
-    stmt = body[0]
+    return _extract_publish_stmt(body[0], source_path)
+
+
+def _extract_publish_call(method: ast.FunctionDef, source_path: Path) -> tuple[str, dict]:
+    """Legacy 2-tuple shape kept for any older callers. Prefer
+    _extract_publish_single for new sites — it preserves the channel."""
+    entry = _extract_publish_single(method, source_path)
+    return entry["topic_suffix"], entry["payload"]
+
+
+# Channel verbs map from `self.<verb>` to the manifest channel name +
+# the topic-suffix prefix. publish=legacy (no channel field; raw topic).
+# send_data/event/alert are v0.4: name is the second component (channel
+# is derived from the verb, the user picks just `name`).
+_CHANNEL_SEND_VERBS: dict[str, tuple[str, str]] = {
+    # verb name → (channel name in manifest, MQTT topic prefix)
+    "send_data": ("data", "data/"),
+    "send_event": ("events", "event/"),
+    "send_alert": ("alerts", "alert/"),
+}
+
+
+def _extract_publish_stmt(stmt: ast.stmt, source_path: Path) -> dict:
+    """Lower a single Expr(Call) into a publish entry dict.
+
+    Recognised shapes:
+      - self.publish(topic_literal, payload_dict[, quality=...])
+        → {topic_suffix, payload}                    (legacy)
+      - self.send_data(name, payload_dict)
+        → {topic_suffix: "data/<name>", payload, channel: "data"}
+      - self.send_event(name, payload_dict)
+        → {topic_suffix: "event/<name>", payload, channel: "events"}
+      - self.send_alert(name, payload_dict)
+        → {topic_suffix: "alert/<name>", payload, channel: "alerts"}
+
+    Channel verbs reject names containing '/' so the user can't
+    accidentally inject topic levels — pick a `name`, not a `topic`.
+    See web-docs's architecture/channels.md for the rationale.
+    """
     if not (isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call)):
         raise Esp32UnsupportedError(
-            f"{source_path}:{method.lineno}: only a self.publish(...) expression is supported"
+            f"{source_path}:{getattr(stmt, 'lineno', '?')}: only a "
+            f"self.publish/send_data/send_event/send_alert(...) "
+            f"expression is supported"
         )
     call = stmt.value
     if not (
@@ -473,24 +514,50 @@ def _extract_publish_call(method: ast.FunctionDef, source_path: Path) -> tuple[s
             f"{source_path}:{call.lineno}: only `self.<method>(...)` calls are supported"
         )
     method_name = call.func.attr
+
+    # Channel-aware send_* verbs (v0.4).
+    if method_name in _CHANNEL_SEND_VERBS:
+        channel, prefix = _CHANNEL_SEND_VERBS[method_name]
+        if len(call.args) < 2:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.{method_name} requires (name, payload_dict)"
+            )
+        name = _string_literal(call.args[0], source_path, "name")
+        if not name:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.{method_name} name must be non-empty"
+            )
+        if "/" in name or "+" in name or "#" in name:
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.{method_name} name must not "
+                f"contain '/', '+', or '#' (channel handles topic prefix automatically)"
+            )
+        payload = _payload_dict(call.args[1], source_path)
+        return {
+            "topic_suffix": f"{prefix}{name}",
+            "payload": payload,
+            "channel": channel,
+        }
+
+    # Legacy publish — explicit topic, no channel field.
     if method_name != "publish":
         raise Esp32UnsupportedError(
-            f"{source_path}:{call.lineno}: self.{method_name}(...) not supported on ESP32 — "
-            f"only self.publish() is. (allowlist may grow in v0.4)"
+            f"{source_path}:{call.lineno}: self.{method_name}(...) not supported "
+            f"on ESP32 — supported verbs: publish, send_data, send_event, send_alert"
         )
     if len(call.args) < 2:
         raise Esp32UnsupportedError(
             f"{source_path}:{call.lineno}: self.publish requires (topic, payload_dict)"
         )
-    topic_node, payload_node = call.args[0], call.args[1]
+    topic_node = call.args[0]
     topic_suffix = _string_literal(topic_node, source_path, "topic")
     if topic_suffix.startswith("/"):
         raise Esp32UnsupportedError(
             f"{source_path}:{topic_node.lineno}: publish topic must not start with '/' "
             f"— it gets prepended with `{{project}}/{{gateway}}/`"
         )
-    payload = _payload_dict(payload_node, source_path)
-    return topic_suffix, payload
+    payload = _payload_dict(call.args[1], source_path)
+    return {"topic_suffix": topic_suffix, "payload": payload}
 
 
 def _extract_publish_calls(method: ast.FunctionDef, source_path: Path) -> list[dict]:
@@ -528,42 +595,10 @@ def _extract_publish_calls(method: ast.FunctionDef, source_path: Path) -> list[d
     for stmt in body:
         if not isinstance(stmt, ast.Expr):
             raise Esp32UnsupportedError(
-                f"{source_path}:{stmt.lineno}: only self.publish(...) "
+                f"{source_path}:{stmt.lineno}: only self.publish/send_*(...) "
                 f"statements are allowed here (got {type(stmt).__name__})"
             )
-        if not isinstance(stmt.value, ast.Call):
-            raise Esp32UnsupportedError(
-                f"{source_path}:{stmt.lineno}: only self.publish(...) calls are allowed here"
-            )
-        call = stmt.value
-        if not (
-            isinstance(call.func, ast.Attribute)
-            and isinstance(call.func.value, ast.Name)
-            and call.func.value.id == "self"
-        ):
-            raise Esp32UnsupportedError(
-                f"{source_path}:{call.lineno}: only `self.<method>(...)` calls are supported"
-            )
-        method_name = call.func.attr
-        if method_name != "publish":
-            raise Esp32UnsupportedError(
-                f"{source_path}:{call.lineno}: self.{method_name}(...) "
-                f"not supported on ESP32 — only self.publish() is."
-            )
-        if len(call.args) < 2:
-            raise Esp32UnsupportedError(
-                f"{source_path}:{call.lineno}: self.publish requires (topic, payload_dict)"
-            )
-        topic_node, payload_node = call.args[0], call.args[1]
-        topic_suffix = _string_literal(topic_node, source_path, "topic")
-        if topic_suffix.startswith("/"):
-            raise Esp32UnsupportedError(
-                f"{source_path}:{topic_node.lineno}: publish topic must "
-                f"not start with '/' — it gets prepended with "
-                f"`{{project}}/{{gateway}}/`"
-            )
-        payload = _payload_dict(payload_node, source_path)
-        publishes.append({"topic_suffix": topic_suffix, "payload": payload})
+        publishes.append(_extract_publish_stmt(stmt, source_path))
 
     return publishes
 
