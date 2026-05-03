@@ -354,6 +354,114 @@ class BadField(Controller):
     assert result.errors, "expected compile error for message_field() with no args"
 
 
+# ---------------- v0.4 channel model — command= form + message.field --
+
+
+def test_on_message_command_kwarg_lowers_to_cmd_topic(tmp_path):
+    """v0.4: @on.message(command="X") is the canonical form. SDK derives
+    topic_suffix=cmd/X, emits both the user-facing command name and the
+    chip-facing topic in the manifest."""
+    src = """
+from scadable import Controller, on
+
+class Switch(Controller):
+    @on.message(command="set_temperature")
+    def on_setpoint(self):
+        self.publish("events/setpoint_ack", {"received": message.value})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    subs = manifest["mqtt_subscriptions"]
+    assert len(subs) == 1
+    sub = subs[0]
+    assert sub["command"] == "set_temperature"
+    assert sub["topic_suffix"] == "cmd/set_temperature"
+    assert sub["controller"] == "Switch"
+    assert sub["publishes"][0]["payload"]["received"] == {
+        "kind": "message_field",
+        "path": "value",
+    }
+
+
+def test_on_message_command_kwarg_with_requires_role(tmp_path):
+    """requires_role is forwarded into the manifest so cloud-side auth
+    can gate the command at the API layer."""
+    src = """
+from scadable import Controller, on
+
+class HVAC(Controller):
+    @on.message(command="set_temperature", requires_role="operator")
+    def on_setpoint(self):
+        self.publish("events/setpoint_ack", {"received": message.value})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    sub = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]
+    assert sub["command"] == "set_temperature"
+    assert sub["topic_suffix"] == "cmd/set_temperature"
+    assert sub["requires_role"] == "operator"
+
+
+def test_on_message_command_with_slash_rejected(tmp_path):
+    """command= shouldn't carry topic separators — the cmd/ prefix is
+    auto-derived. Catching this at compile time avoids two-topic-for-one-
+    command surprises."""
+    src = """
+from scadable import Controller, on
+
+class BadCmd(Controller):
+    @on.message(command="cmd/set_temperature")
+    def on_setpoint(self):
+        self.publish("events/ack", {"x": 1})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected compile error for slash in command name"
+
+
+def test_on_message_legacy_topic_kwarg_still_works(tmp_path):
+    """Backwards compat: @on.message(topic="cmd/X") continues to work for
+    v0.3.x controllers. SDK derives the command name by stripping cmd/."""
+    src = """
+from scadable import Controller, on
+
+class Legacy(Controller):
+    @on.message(topic="cmd/restart")
+    def on_restart(self):
+        self.publish("status/ack", {"cmd": "restart"})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    sub = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]
+    assert sub["topic_suffix"] == "cmd/restart"
+    assert sub["command"] == "restart"
+
+
+def test_message_attribute_access_lowers_like_message_field(tmp_path):
+    """message.value is sugar for message_field("value"). Mixed use in
+    the same payload should produce identical descriptors."""
+    src = """
+from scadable import Controller, on
+
+class Echo(Controller):
+    @on.message(command="echo")
+    def on_echo(self):
+        self.publish("events/echoed", {
+            "via_attr": message.value,
+            "via_func": message_field("value"),
+            "literal": "constant",
+        })
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    payload = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]["publishes"][0][
+        "payload"
+    ]
+    assert payload["via_attr"] == {"kind": "message_field", "path": "value"}
+    assert payload["via_func"] == {"kind": "message_field", "path": "value"}
+    assert payload["literal"] == {"kind": "constant", "value": "constant"}
+
+
 def test_startup_with_multiple_publishes(tmp_path):
     """Multiple self.publish calls in sequence are allowed in lifecycle
     handlers — the firmware fires them in source order."""
