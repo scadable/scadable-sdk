@@ -523,6 +523,213 @@ class Legacy(Controller):
     assert "channel" not in s  # legacy path doesn't tag channel
 
 
+# ---------------- v0.4 conditionals — if/elif/else --------------------
+
+
+def test_if_else_in_on_message_lowers_to_branched_publishes(tmp_path):
+    """The headline use-case: branch on inbound message field."""
+    src = """
+from scadable import Controller, on
+
+class HVAC(Controller):
+    @on.message(command="check_temp")
+    def check(self):
+        if message.value > 30:
+            self.send_alert("too_hot", {"temp": message.value})
+        else:
+            self.send_data("temp_ok", {"temp": message.value})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    sub = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]
+    assert len(sub["publishes"]) == 1
+    branch = sub["publishes"][0]
+    assert branch["if"] == {
+        "kind": "compare",
+        "left": {"kind": "message_field", "path": "value"},
+        "op": "gt",
+        "right": {"kind": "constant", "value": 30},
+    }
+    assert branch["then"][0]["topic_suffix"] == "alert/too_hot"
+    assert branch["then"][0]["channel"] == "alerts"
+    assert branch["else"][0]["topic_suffix"] == "data/temp_ok"
+    assert branch["else"][0]["channel"] == "data"
+
+
+def test_if_without_else_lowers_with_empty_else(tmp_path):
+    """`if x: ...` (no else) → empty else list. Chip treats empty else as no-op."""
+    src = """
+from scadable import Controller, on
+
+class Watchdog(Controller):
+    @on.message(command="check")
+    def check(self):
+        if message.value == 0:
+            self.send_alert("zero", {"saw": "zero"})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    branch = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]["publishes"][0]
+    assert len(branch["then"]) == 1
+    assert branch["else"] == []
+
+
+def test_elif_lowers_to_nested_if(tmp_path):
+    """Python parses `elif` as `else: [If(...)]`. SDK lowers naturally."""
+    src = """
+from scadable import Controller, on
+
+class HVAC(Controller):
+    @on.message(command="check")
+    def check(self):
+        if message.value > 80:
+            self.send_alert("high", {"v": message.value})
+        elif message.value > 60:
+            self.send_alert("mid", {"v": message.value})
+        else:
+            self.send_data("low", {"v": message.value})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    outer = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]["publishes"][0]
+    # outer if: > 80 → alert/high
+    assert outer["if"]["op"] == "gt"
+    assert outer["if"]["right"] == {"kind": "constant", "value": 80}
+    assert outer["then"][0]["topic_suffix"] == "alert/high"
+    # else contains a nested if (the elif)
+    assert len(outer["else"]) == 1
+    inner = outer["else"][0]
+    assert inner["if"]["right"] == {"kind": "constant", "value": 60}
+    assert inner["then"][0]["topic_suffix"] == "alert/mid"
+    assert inner["else"][0]["topic_suffix"] == "data/low"
+
+
+def test_compare_ops_lower_correctly(tmp_path):
+    """All six comparison ops map to their wire names."""
+    src = """
+from scadable import Controller, on
+
+class Allops(Controller):
+    @on.message(command="check")
+    def check(self):
+        if message.a == 1:
+            self.send_event("eq", {})
+        if message.a != 2:
+            self.send_event("ne", {})
+        if message.a < 3:
+            self.send_event("lt", {})
+        if message.a <= 4:
+            self.send_event("lte", {})
+        if message.a > 5:
+            self.send_event("gt", {})
+        if message.a >= 6:
+            self.send_event("gte", {})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    publishes = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]["publishes"]
+    ops = [p["if"]["op"] for p in publishes]
+    assert ops == ["eq", "ne", "lt", "lte", "gt", "gte"]
+
+
+def test_and_or_not_lower_to_composites(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Bools(Controller):
+    @on.message(command="check")
+    def check(self):
+        if message.a > 1 and message.b < 5:
+            self.send_event("and_branch", {})
+        if message.a > 1 or message.b < 5:
+            self.send_event("or_branch", {})
+        if not message.flag:
+            self.send_event("not_branch", {})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    publishes = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]["publishes"]
+    assert publishes[0]["if"]["kind"] == "and"
+    assert len(publishes[0]["if"]["conditions"]) == 2
+    assert publishes[1]["if"]["kind"] == "or"
+    assert publishes[2]["if"]["kind"] == "not"
+
+
+def test_truthy_bare_value_condition(tmp_path):
+    """`if message.flag:` (no operator) → Truthy condition wrapping the value."""
+    src = """
+from scadable import Controller, on
+
+class Truthy(Controller):
+    @on.message(command="check")
+    def check(self):
+        if message.alarm:
+            self.send_alert("fire", {"src": message.source})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    branch = json.loads(result.manifest_path.read_text())["mqtt_subscriptions"][0]["publishes"][0]
+    assert branch["if"] == {
+        "kind": "truthy",
+        "value": {"kind": "message_field", "path": "alarm"},
+    }
+
+
+def test_chained_compare_rejected_with_clear_error(tmp_path):
+    """`a < b < c` is too clever for the lowering today — rejected with
+    a hint to split."""
+    src = """
+from scadable import Controller, on
+
+class Chained(Controller):
+    @on.message(command="check")
+    def check(self):
+        if 1 < message.value < 10:
+            self.send_event("in_range", {})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected compile error for chained comparison"
+    assert "chained" in result.errors[0].lower()
+
+
+def test_assignment_in_body_still_rejected(tmp_path):
+    """Defensive: existing rejection of variable assignment must keep
+    working — the new if-handling path doesn't accidentally let
+    `x = 5` through."""
+    src = """
+from scadable import Controller, on
+
+class BadAssign(Controller):
+    @on.message(command="check")
+    def check(self):
+        x = message.value
+        self.send_data("temp", {"v": x})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "assignment should still be rejected"
+
+
+def test_if_in_lifecycle_handler_works(tmp_path):
+    """Conditional publishes also work in @on.startup / @on.shutdown
+    (no inbound — Truthy/MessageField resolves to null on chip)."""
+    src = """
+from scadable import Controller, on
+
+class Boot(Controller):
+    @on.startup
+    def init(self):
+        if counter() == 0:
+            self.send_event("first_boot", {"hello": "world"})
+        else:
+            self.send_event("rebooted", {})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    actions = json.loads(result.manifest_path.read_text())["lifecycle"]["startup"][0]["publishes"]
+    assert len(actions) == 1
+    assert actions[0]["if"]["kind"] == "compare"
+
+
 def test_message_attribute_access_lowers_like_message_field(tmp_path):
     """message.value is sugar for message_field("value"). Mixed use in
     the same payload should produce identical descriptors."""
@@ -621,24 +828,22 @@ class BadBoot(Controller):
     assert "actuate" in result.errors[0]
 
 
-def test_on_startup_with_conditional_raises(tmp_path):
-    """Bodies must be a flat sequence of self.publish calls — `if`/`for`
-    aren't lowerable."""
+def test_on_startup_with_for_loop_still_rejected(tmp_path):
+    """Loops still aren't supported — only if/elif/else conditionals.
+    Bodies must be a flat sequence of self.publish/send_*  + ifs."""
     src = """
 from scadable import Controller, on
 
-class BranchyBoot(Controller):
+class LoopyBoot(Controller):
     @on.startup
     def init(self):
-        if True:
+        for _ in range(3):
             self.publish("status/boot", {"v": 1})
 """
     result = _compile_esp(tmp_path, src)
-    assert result.errors, "expected an error for `if` inside @on.startup body"
+    assert result.errors, "expected an error for `for` inside @on.startup body"
     msg = result.errors[0]
-    # Either name the construct (If) or the rule it violated — both
-    # acceptable as long as the user sees the specific node type.
-    assert "If" in msg or "self.publish" in msg
+    assert "For" in msg or "self.publish" in msg
 
 
 def test_on_message_without_topic_kwarg_raises(tmp_path):
