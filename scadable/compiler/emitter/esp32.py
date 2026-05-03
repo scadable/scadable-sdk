@@ -243,16 +243,21 @@ def _lower_controllers(
                     )
                     continue
 
-                # @on.message(topic="cmd/restart")
-                topic_suffix = _message_topic_from_decorator(member, source_path)
-                mqtt_subscriptions.append(
-                    {
-                        "topic_suffix": topic_suffix,
-                        "controller": ctrl["class_name"],
-                        "method": member.name,
-                        "publishes": publishes,
-                    }
+                # @on.message(command="set_temperature") — preferred v0.4+ form.
+                # Legacy topic= form still works (auto-derives command).
+                command, topic_suffix, requires_role = _message_command_from_decorator(
+                    member, source_path
                 )
+                entry: dict[str, Any] = {
+                    "command": command,
+                    "topic_suffix": topic_suffix,
+                    "controller": ctrl["class_name"],
+                    "method": member.name,
+                    "publishes": publishes,
+                }
+                if requires_role is not None:
+                    entry["requires_role"] = requires_role
+                mqtt_subscriptions.append(entry)
 
     return schedules, lifecycle, mqtt_subscriptions
 
@@ -272,32 +277,92 @@ def _on_decorator_for(method: ast.FunctionDef) -> str | None:
     return None
 
 
-def _message_topic_from_decorator(method: ast.FunctionDef, source_path: Path) -> str:
-    """Pull the topic= kwarg out of @on.message(topic="...").
+def _message_command_from_decorator(
+    method: ast.FunctionDef, source_path: Path
+) -> tuple[str, str, str | None]:
+    """Pull command/topic + role from @on.message(...).
 
-    The DSL allows positional or kwarg form (see triggers.py: the
-    decorator signature is `message(topic: str)`), but for ESP we
-    require the explicit `topic=` kwarg so the lowering stays
-    obviously-correct + matches the example in the user docs. A bare
-    @on.message decorator (no args) is also rejected here.
+    Returns ``(command_name, topic_suffix, requires_role)`` where:
+
+    - ``command_name`` is the user-facing command identifier (what the
+      cloud API caller specifies). Always present after v0.4.
+    - ``topic_suffix`` is the MQTT topic the chip subscribes to. Derived
+      as ``cmd/<command_name>`` for the new ``command=`` form. For the
+      legacy ``topic=`` form, used directly so existing controllers keep
+      working.
+    - ``requires_role`` is the optional cloud-side authorization gate.
+      ``None`` means the platform default (``viewer``).
+
+    Three accepted forms (in priority order):
+
+    1. ``@on.message(command="set_temperature", requires_role="operator")``
+       — preferred; v0.4+. Lowers to topic_suffix=``cmd/set_temperature``.
+    2. ``@on.message(topic="cmd/set_temperature")`` — legacy v0.3.x form,
+       still accepted with the topic used verbatim. ``command`` is
+       derived by stripping a leading ``cmd/`` prefix; if the topic
+       doesn't start with ``cmd/`` we use the suffix verbatim as the
+       command name (caller will have to specify the full topic-style
+       name in the cloud API).
+    3. ``@on.message("name")`` — single positional, treated as a command
+       name (NOT as a topic — channel model says command is canonical).
+       v0.4+ shape.
+
+    See web-docs/docs/Scadable SDK/architecture/channels.md for the
+    channel model rationale.
     """
     for dec in method.decorator_list:
         if not isinstance(dec, ast.Call):
             continue
         if _decorator_attr(dec) != "message":
             continue
-        for kw in dec.keywords:
-            if kw.arg == "topic":
-                return _string_literal(kw.value, source_path, "topic")
-        # Tolerate a single positional topic literal so the SDK example
-        # `@on.message("emergency_stop")` keeps working — but be loud
-        # if neither form is present.
+
+        # Collect kwargs by name.
+        kwargs: dict[str, ast.expr] = {kw.arg: kw.value for kw in dec.keywords if kw.arg}
+        requires_role: str | None = None
+        if "requires_role" in kwargs:
+            role_val = _const_strict(kwargs["requires_role"], source_path)
+            if not isinstance(role_val, str) or not role_val:
+                raise Esp32UnsupportedError(
+                    f"{source_path}:{dec.lineno}: @on.message requires_role= "
+                    f"must be a non-empty string literal"
+                )
+            requires_role = role_val
+
+        # Form 1: command= kwarg (preferred).
+        if "command" in kwargs:
+            command = _string_literal(kwargs["command"], source_path, "command")
+            if "/" in command:
+                raise Esp32UnsupportedError(
+                    f"{source_path}:{dec.lineno}: @on.message command= must not "
+                    f"contain '/' — commands map to topic cmd/<name> automatically"
+                )
+            return command, f"cmd/{command}", requires_role
+
+        # Form 2: legacy topic= kwarg.
+        if "topic" in kwargs:
+            topic_suffix = _string_literal(kwargs["topic"], source_path, "topic")
+            command = (
+                topic_suffix[len("cmd/") :] if topic_suffix.startswith("cmd/") else topic_suffix
+            )
+            return command, topic_suffix, requires_role
+
+        # Form 3: single positional, treated as command name.
         if len(dec.args) == 1:
-            return _string_literal(dec.args[0], source_path, "topic")
+            command = _string_literal(dec.args[0], source_path, "command")
+            if "/" in command:
+                # Backward-compat: if it looks like a topic (has /), treat
+                # it as one — matches the v0.3 positional `@on.message("cmd/x")`.
+                topic_suffix = command
+                command = (
+                    topic_suffix[len("cmd/") :] if topic_suffix.startswith("cmd/") else topic_suffix
+                )
+                return command, topic_suffix, requires_role
+            return command, f"cmd/{command}", requires_role
+
         raise Esp32UnsupportedError(
-            f"{source_path}:{dec.lineno}: @on.message requires a topic= "
-            f"keyword argument (got {len(dec.args)} positional args, "
-            f"{len(dec.keywords)} kwargs)"
+            f"{source_path}:{dec.lineno}: @on.message requires command= "
+            f"(preferred) or topic= (legacy) keyword argument, or a single "
+            f"positional command name"
         )
     raise Esp32UnsupportedError(
         f"{source_path}:{method.lineno}: @on.message decorator missing on "
@@ -572,6 +637,18 @@ def _value_descriptor(node: ast.expr, source_path: Path) -> dict:
                     f"{source_path}:{node.lineno}: message_field() requires a non-empty string literal"
                 )
             return {"kind": "message_field", "path": path}
+
+    # `message.field_name` — Pythonic shorthand for message_field("field_name").
+    # Same semantics: only meaningful inside @on.message; resolves to JSON
+    # null outside that context. Lower as if the user wrote message_field().
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "message"
+        and isinstance(node.attr, str)
+        and node.attr
+    ):
+        return {"kind": "message_field", "path": node.attr}
 
     if isinstance(node, ast.Dict):
         d: dict = {}
