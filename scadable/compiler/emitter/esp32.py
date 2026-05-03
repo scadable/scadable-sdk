@@ -71,8 +71,8 @@ class Esp32Emitter(Emitter):
             # into output_dir as a marker file so the bundle inspector
             # can flag it.
             (output_dir / "esp32_unsupported_devices.txt").write_text(
-                "ESP32 emitter received {} device(s) but declarative-only MVP "
-                "ignores them. Driver protocols come in v0.4.\n".format(len(devices))
+                f"ESP32 emitter received {len(devices)} device(s) but declarative-only MVP "
+                "ignores them. Driver protocols come in v0.4.\n"
             )
         return []
 

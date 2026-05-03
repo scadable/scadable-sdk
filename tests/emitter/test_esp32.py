@@ -11,10 +11,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from scadable.compiler import compile_project
-from scadable.compiler.emitter.esp32 import Esp32UnsupportedError
 
 
 def _write_project(tmp_path: Path, controller_src: str) -> Path:

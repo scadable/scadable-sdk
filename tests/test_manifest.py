@@ -23,7 +23,6 @@ from scadable.manifest import (
     parse_manifest,
 )
 
-
 # ----------------------------------------------------------------------
 # Fixtures — keep TOML literals in one place so cross-platform parity
 # tests can re-use the exact same input bytes.
