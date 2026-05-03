@@ -73,22 +73,43 @@ def run_verify(target: str = "", json_output: bool = False) -> None:
         quiet,
         "warning",
     )
-    _check(
-        has_devices,
-        "devices/ directory found",
-        "devices/ directory missing",
-        errors,
-        quiet,
-        "error",
-    )
-    _check(
-        has_controllers,
-        "controllers/ directory found",
-        "controllers/ missing",
-        warnings,
-        quiet,
-        "warning",
-    )
+
+    # Project shape requirements depend on the target. Linux gateways
+    # have an external-device model (Modbus, BLE, etc.) where devices/
+    # is the load-bearing dir and controllers/ is optional. ESP/RTOS
+    # firmware IS the device — controllers/ is the load-bearing dir
+    # and devices/ has no meaning (no driver subprocesses on the chip).
+    if target in ("esp32", "rtos"):
+        # devices/ is irrelevant on these targets — don't surface its
+        # absence at all (no warning, no error). controllers/ is the
+        # one that must exist.
+        _check(
+            has_controllers,
+            "controllers/ directory found",
+            "controllers/ directory missing",
+            errors,
+            quiet,
+            "error",
+        )
+    else:
+        # Linux (and any future host-style target): devices/ is required,
+        # controllers/ is optional.
+        _check(
+            has_devices,
+            "devices/ directory found",
+            "devices/ directory missing",
+            errors,
+            quiet,
+            "error",
+        )
+        _check(
+            has_controllers,
+            "controllers/ directory found",
+            "controllers/ missing",
+            warnings,
+            quiet,
+            "warning",
+        )
 
     # 2. Validate Python syntax
     out("\n[bold]── Validating Python syntax ──────────────[/bold]")
