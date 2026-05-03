@@ -19,9 +19,7 @@ def _write_project(tmp_path: Path, controller_src: str) -> Path:
     proj = tmp_path / "demo"
     proj.mkdir()
     # Project metadata picked up by discover_project — minimal shape.
-    (proj / "scadable.toml").write_text(
-        '[project]\nname = "esp-heartbeat"\nversion = "1.0.0"\n'
-    )
+    (proj / "scadable.toml").write_text('[project]\nname = "esp-heartbeat"\nversion = "1.0.0"\n')
     controllers_dir = proj / "controllers"
     controllers_dir.mkdir()
     (controllers_dir / "__init__.py").write_text("")
@@ -56,9 +54,7 @@ class HeartbeatDemo(Controller):
     assert s["id"] == "HeartbeatDemo.emit"
     assert s["interval_ms"] == 5000
     assert s["topic_suffix"] == "data/temperature"
-    assert s["payload"] == {
-        "value": {"kind": "random", "min": 20.0, "max": 30.0}
-    }
+    assert s["payload"] == {"value": {"kind": "random", "min": 20.0, "max": 30.0}}
 
 
 def test_milliseconds_unit_lowers_to_ms(tmp_path):
@@ -284,9 +280,7 @@ class ShutdownDemo(Controller):
     assert entry["controller"] == "ShutdownDemo"
     assert entry["method"] == "teardown"
     assert entry["publishes"][0]["topic_suffix"] == "status/halt"
-    assert entry["publishes"][0]["payload"] == {
-        "reason": {"kind": "constant", "value": "graceful"}
-    }
+    assert entry["publishes"][0]["payload"] == {"reason": {"kind": "constant", "value": "graceful"}}
     assert manifest["lifecycle"]["startup"] == []
 
 

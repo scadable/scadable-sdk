@@ -268,9 +268,7 @@ def _from_dict(data: dict[str, Any], source_path: Path | None) -> HardwareManife
 
 def _parse_chip(raw: Any, source_path: Path | None) -> ChipInfo:
     if raw is None:
-        raise ManifestParseError(
-            source_path or "<string>", "missing required [chip] section"
-        )
+        raise ManifestParseError(source_path or "<string>", "missing required [chip] section")
     if not isinstance(raw, dict):
         raise ManifestParseError(source_path or "<string>", "[chip] must be a table")
     family = raw.get("family")
