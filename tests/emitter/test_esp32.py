@@ -319,6 +319,50 @@ class CmdDemo(Controller):
     ]
 
 
+def test_on_message_with_message_field_binding(tmp_path):
+    """`message_field("path")` in an @on.message publish lowers to a
+    MessageField ValueDescriptor that the chip resolves against the
+    parsed inbound JSON payload at dispatch time."""
+    src = """
+from scadable import Controller, on
+
+class Switch(Controller):
+    @on.message(topic="cmd/setpoint")
+    def on_setpoint(self):
+        self.publish("events/setpoint_ack", {
+            "received": message_field("value"),
+            "unit": message_field("unit"),
+        })
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    subs = manifest["mqtt_subscriptions"]
+    assert len(subs) == 1
+    pub = subs[0]["publishes"][0]
+    assert pub["topic_suffix"] == "events/setpoint_ack"
+    assert pub["payload"] == {
+        "received": {"kind": "message_field", "path": "value"},
+        "unit": {"kind": "message_field", "path": "unit"},
+    }
+
+
+def test_message_field_requires_string_literal(tmp_path):
+    """`message_field()` with a non-string or missing arg is rejected at
+    compile time so the user gets a clean error rather than a chip-side
+    parse failure later."""
+    src = """
+from scadable import Controller, on
+
+class BadField(Controller):
+    @on.message(topic="cmd/setpoint")
+    def on_setpoint(self):
+        self.publish("events/ack", {"x": message_field()})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected compile error for message_field() with no args"
+
+
 def test_startup_with_multiple_publishes(tmp_path):
     """Multiple self.publish calls in sequence are allowed in lifecycle
     handlers — the firmware fires them in source order."""

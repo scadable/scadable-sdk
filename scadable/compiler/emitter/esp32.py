@@ -51,7 +51,7 @@ class Esp32UnsupportedError(Exception):
 # Allowed shapes inside a `self.publish(topic, dict_literal[, quality=...])`
 # dict literal value. Each entry maps to a ValueDescriptor variant on
 # the chip side (handlers/schedules.rs::ValueDescriptor).
-_PAYLOAD_VALUE_KINDS = {"constant", "counter", "timestamp_unix_ms", "random"}
+_PAYLOAD_VALUE_KINDS = {"constant", "counter", "timestamp_unix_ms", "random", "message_field"}
 
 
 class Esp32Emitter(Emitter):
@@ -553,6 +553,7 @@ def _value_descriptor(node: ast.expr, source_path: Path) -> dict:
       - `random(min, max)` (special name) → {"kind": "random", "min": ..., "max": ...}
       - `counter()` → {"kind": "counter"}
       - `timestamp_unix_ms()` → {"kind": "timestamp_unix_ms"}
+      - `message_field("path")` → {"kind": "message_field", "path": "..."}
       - explicit dict `{"kind": "...", ...}` → passed through after validation
 
     Anything else (variables, complex expressions, function calls with
@@ -575,6 +576,19 @@ def _value_descriptor(node: ast.expr, source_path: Path) -> dict:
                     f"{source_path}:{node.lineno}: random(min, max) requires numeric literals"
                 )
             return {"kind": "random", "min": float(mn), "max": float(mx)}
+        if fn == "message_field" and len(node.args) == 1 and not node.keywords:
+            # message_field("path") — only meaningful inside @on.message
+            # publishes. Top-level field name only; no nested-path syntax
+            # yet. Outside of message dispatch the chip resolves this to
+            # JSON null, so it's harmless if used in @on.interval too —
+            # but we don't validate that context here (the chip's the
+            # source of truth on resolution semantics).
+            path = _const_strict(node.args[0], source_path)
+            if not isinstance(path, str) or not path:
+                raise Esp32UnsupportedError(
+                    f"{source_path}:{node.lineno}: message_field() requires a non-empty string literal"
+                )
+            return {"kind": "message_field", "path": path}
 
     if isinstance(node, ast.Dict):
         d: dict = {}
