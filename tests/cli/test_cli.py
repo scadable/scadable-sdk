@@ -65,6 +65,17 @@ def test_init_rtos_target(tmp_path):
     assert (tmp_path / "rtosproj" / "scadable.toml").exists()
 
 
+def test_init_pins_sdk_to_latest(tmp_path):
+    """A freshly-scaffolded project must default to `sdk = "latest"`,
+    not a hard pin. Pinning to a specific semver here was a footgun:
+    projects scaffolded a quarter ago compiled against a stale
+    capability matrix until the user noticed and edited."""
+    os.chdir(tmp_path)
+    runner.invoke(app, ["init", "linux", "freshproj"])
+    contents = (tmp_path / "freshproj" / "scadable.toml").read_text()
+    assert 'sdk = "latest"' in contents
+
+
 # ── add ─────────────────────────────────────────────────────────
 
 

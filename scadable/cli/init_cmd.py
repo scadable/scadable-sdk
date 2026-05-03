@@ -34,10 +34,16 @@ def run_init(target: str, name: str) -> None:
     (project_dir / "models").mkdir()
 
     # scadable.toml
+    # `sdk = "latest"` (vs. a hard pin) means a freshly-scaffolded
+    # project always picks up the latest SDK install on the dev's
+    # machine. Pinning to a specific semver here was a footgun —
+    # projects scaffolded a quarter ago would compile against a stale
+    # capability matrix. Customers who want reproducibility can edit
+    # this to a pinned version after init.
     (project_dir / "scadable.toml").write_text(f"""[project]
 name = "{name}"
 version = "0.1.0"
-sdk = "0.1.0"
+sdk = "latest"
 
 [target]
 default = "{FLEET_TARGETS[target]}"
