@@ -176,3 +176,36 @@ class Controller:
     def capture(self, device: Any) -> bytes:
         """Trigger a capture action (photo, snapshot) on a device."""
         return b""  # implemented by gateway runtime
+
+    def log(self, message: str, *, level: str = "info") -> None:
+        """Emit an application log line (NW-F.2).
+
+        On chip-side runtimes (ESP32 v0.3.10+) this routes through the
+        gateway's standard log path so the message lands on both the
+        Live tail (`Logs` sub-tab) and the offline batch buffer
+        (`Logs → History` sub-tab) — the latter only when the operator
+        has enabled `[telemetry] log_batch_interval_secs` in
+        hardware.toml. The chip stamps the record with this controller
+        class name + the emitting method so the dashboard's
+        Application/Runtime filter pivots correctly.
+
+        v1 takes a static string + level. f-string interpolation is a
+        follow-up — declarative-only constraint stays.
+
+        Levels: ``info`` | ``warn`` | ``error`` | ``debug`` | ``trace``.
+        Unknown values surface as INFO on the chip so a typo doesn't
+        drop the message.
+
+        On the local Python sandbox this is a no-op — the chip is the
+        runtime, not your laptop.
+        """
+        if not isinstance(message, str):
+            raise TypeError(f"self.log message must be a string, got {type(message).__name__}")
+        if level not in ("info", "warn", "warning", "error", "err", "debug", "trace"):
+            # Sandbox-side validation: nudge the user toward the supported
+            # set, even though the chip falls back to INFO on unknown.
+            raise ValueError(
+                f"self.log: unknown level={level!r}; expected info|warn|error|debug|trace"
+            )
+        # No-op in the local sandbox.
+        return None

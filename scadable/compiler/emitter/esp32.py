@@ -244,6 +244,10 @@ def _lower_controllers(
                 # contract: a sequence of self.publish(literal, dict)
                 # calls. The decorator metadata differs per kind.
                 publishes = _extract_publish_calls(member, source_path)
+                # NW-F.2: stamp self.log() actions with controller + method
+                # since the call-site lowering doesn't know the surrounding
+                # context. Walks Log + If branches recursively.
+                _stamp_log_actions(publishes, ctrl["class_name"], member.name)
 
                 if trigger in ("startup", "shutdown"):
                     lifecycle[trigger].append(
@@ -526,6 +530,15 @@ def _extract_publish_stmt(stmt: ast.stmt, source_path: Path) -> dict:
     if state_action is not None:
         return state_action
 
+    # `self.log("message", level="info")` (NW-F.2) — application log
+    # action. Lowered to a {log_level, message, controller, method}
+    # dict the chip's PublishAction::Log variant decodes. Controller
+    # + method are stamped post-hoc by _stamp_log_actions since
+    # _extract_publish_stmt doesn't have the surrounding context.
+    log_action = _try_extract_log_call(call, source_path)
+    if log_action is not None:
+        return log_action
+
     if not (
         isinstance(call.func, ast.Attribute)
         and isinstance(call.func.value, ast.Name)
@@ -721,6 +734,91 @@ def _string_literal(node: ast.expr, source_path: Path, what: str) -> str:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     raise Esp32UnsupportedError(f"{source_path}:{node.lineno}: {what} must be a string literal")
+
+
+_LOG_LEVELS = {"info", "warn", "warning", "error", "err", "debug", "trace"}
+
+
+def _try_extract_log_call(call: ast.Call, source_path: Path) -> dict | None:
+    """Recognise `self.log("message", level="info")` calls.
+
+    Returns ``None`` when the call isn't a self.log call. Raises
+    ``Esp32UnsupportedError`` when the shape is wrong (non-literal
+    message, unknown level kwarg, missing message arg).
+
+    Wire shape (matches `gateway-esp/.../release.rs::LogAction`):
+      ``{"log_level": "info", "message": "...", "controller": "", "method": ""}``
+
+    `controller` + `method` are filled in by `_stamp_log_actions`
+    after the full action tree is built, since this function only
+    sees the call expression — not the surrounding controller class
+    or decorated method name.
+    """
+    func = call.func
+    if not (
+        isinstance(func, ast.Attribute)
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "self"
+        and func.attr == "log"
+    ):
+        return None
+
+    if not call.args:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.lineno}: self.log() requires a message argument"
+        )
+    if len(call.args) > 1:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.lineno}: self.log takes exactly 1 positional arg (the message); "
+            f"use level='info' as a keyword argument"
+        )
+    message = _string_literal(call.args[0], source_path, "self.log message")
+    if not message:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.args[0].lineno}: self.log message must be non-empty"
+        )
+
+    level = "info"
+    for kw in call.keywords:
+        if kw.arg != "level":
+            raise Esp32UnsupportedError(
+                f"{source_path}:{call.lineno}: self.log only accepts the 'level' kwarg; got {kw.arg!r}"
+            )
+        if not (isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str)):
+            raise Esp32UnsupportedError(
+                f"{source_path}:{kw.value.lineno}: self.log level= must be a string literal"
+            )
+        level = kw.value.value
+    if level not in _LOG_LEVELS:
+        raise Esp32UnsupportedError(
+            f"{source_path}:{call.lineno}: self.log level={level!r} unknown; "
+            f"expected one of {sorted(_LOG_LEVELS)}"
+        )
+
+    # Stub controller + method — post-pass fills them in.
+    return {
+        "log_level": level,
+        "message": message,
+        "controller": "",
+        "method": "",
+    }
+
+
+def _stamp_log_actions(actions: list[dict], controller_name: str, method_name: str) -> None:
+    """Post-pass that walks the action tree and stamps controller/method
+    on every Log entry. Recurses into If branches.
+
+    Must run AFTER `_extract_publish_calls` builds the tree but BEFORE
+    the manifest is serialized — `_lower_controllers` calls this once
+    per decorated method.
+    """
+    for action in actions:
+        if "log_level" in action:
+            action["controller"] = controller_name
+            action["method"] = method_name
+        elif "if" in action:
+            _stamp_log_actions(action.get("then", []), controller_name, method_name)
+            _stamp_log_actions(action.get("else", []), controller_name, method_name)
 
 
 def _try_extract_state_call(call: ast.Call, source_path: Path) -> dict | None:
