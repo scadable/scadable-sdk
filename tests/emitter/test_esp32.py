@@ -1042,3 +1042,133 @@ class Bad(Controller):
     result = _compile_esp(tmp_path, src)
     assert result.errors, "expected an error for self.state.clear with args"
     assert "no arguments" in result.errors[0]
+
+
+# ---------------- self.log (NW-F.2) ---------------------------------
+
+
+def test_self_log_in_on_message_lowers_with_controller_method(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class HVAC(Controller):
+    @on.message(command="set_temp")
+    def update(self):
+        self.log("setpoint update received", level="info")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["mqtt_subscriptions"][0]["publishes"]
+    assert actions == [
+        {
+            "log_level": "info",
+            "message": "setpoint update received",
+            "controller": "HVAC",
+            "method": "update",
+        }
+    ]
+
+
+def test_self_log_default_level_is_info(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class C(Controller):
+    @on.startup
+    def init(self):
+        self.log("booting")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    a = manifest["lifecycle"]["startup"][0]["publishes"][0]
+    assert a["log_level"] == "info"
+    assert a["message"] == "booting"
+    assert a["controller"] == "C"
+    assert a["method"] == "init"
+
+
+def test_self_log_inside_if_branch_still_gets_attribution(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Guard(Controller):
+    @on.message(command="set_temp")
+    def update(self):
+        if message.value > 30:
+            self.log("temperature exceeded threshold", level="warn")
+        else:
+            self.log("temperature within range", level="debug")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    if_action = manifest["mqtt_subscriptions"][0]["publishes"][0]
+    assert if_action["if"]["kind"] == "compare"
+    then_log = if_action["then"][0]
+    else_log = if_action["else"][0]
+    assert then_log["log_level"] == "warn"
+    assert then_log["controller"] == "Guard" and then_log["method"] == "update"
+    assert else_log["log_level"] == "debug"
+    assert else_log["controller"] == "Guard" and else_log["method"] == "update"
+
+
+def test_self_log_unknown_level_rejected(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class C(Controller):
+    @on.startup
+    def init(self):
+        self.log("x", level="VERBOSE")
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected error for unknown self.log level"
+    assert "VERBOSE" in result.errors[0]
+
+
+def test_self_log_requires_message(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class C(Controller):
+    @on.startup
+    def init(self):
+        self.log()
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected error for self.log() with no args"
+    assert "message" in result.errors[0].lower()
+
+
+def test_self_log_message_must_be_string_literal(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class C(Controller):
+    @on.startup
+    def init(self):
+        self.log(some_var)
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors, "expected error for non-literal message"
+
+
+def test_self_log_then_publish_compose_in_one_method(tmp_path):
+    src = """
+from scadable import Controller, on
+
+class Init(Controller):
+    @on.startup
+    def boot(self):
+        self.log("starting up", level="info")
+        self.send_event("ready", {"ok": True})
+"""
+    result = _compile_esp(tmp_path, src)
+    assert result.errors == [], result.errors
+    manifest = json.loads(result.manifest_path.read_text())
+    actions = manifest["lifecycle"]["startup"][0]["publishes"]
+    assert len(actions) == 2
+    assert actions[0]["log_level"] == "info"
+    assert actions[1]["topic_suffix"] == "event/ready"
